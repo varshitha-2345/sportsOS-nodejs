@@ -12,7 +12,7 @@ router.get('/me', protect, async (req, res) => {
         const items = await shortlistRepo.findByUser(req.user.id);
         res.json(ok(items));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -40,7 +40,7 @@ router.get('/me/populated', protect, async (req, res) => {
 
         res.json(ok(populated));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -65,18 +65,22 @@ router.post('/', protect, async (req, res) => {
         const item = await shortlistRepo.create(req.user.id, itemType, itemId);
         res.status(201).json(ok(item));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
 // DELETE /shortlist/:id — remove item from shortlist
 router.delete('/:id', protect, async (req, res) => {
     try {
-        const deleted = await shortlistRepo.remove(req.params.id);
-        if (!deleted) return res.status(404).json(fail('NOT_FOUND', 'Shortlist item not found'));
+        const item = await shortlistRepo.findById(req.params.id);
+        if (!item) return res.status(404).json(fail('NOT_FOUND', 'Shortlist item not found'));
+        if (item.userId.toString() !== req.user.id) {
+            return res.status(403).json(fail('FORBIDDEN', 'You can only delete your own shortlist items'));
+        }
+        await shortlistRepo.remove(req.params.id);
         res.json(ok({ id: req.params.id }));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 

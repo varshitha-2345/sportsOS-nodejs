@@ -1,11 +1,20 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 const enquiryRepo = require('../repositories/enquiryRepository');
 const { ok, fail } = require('../utils/response');
 
+const enquiryLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many enquiries. Please try again later.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
 // POST /enquiries — submit an enquiry (auth optional — guests can submit)
-router.post('/', async (req, res) => {
+router.post('/', enquiryLimiter, async (req, res) => {
     try {
         const { targetType, targetId, intent, parentInfo, childInfo, sportInterest, message } = req.body;
 
@@ -30,7 +39,7 @@ router.post('/', async (req, res) => {
                 const token = authHeader.split(' ')[1];
                 const decoded = jwt.verify(token, process.env.JWT_SECRET);
                 userId = decoded.id;
-            } catch { /* guest */ }
+            } catch { /* guest — ignore invalid tokens */ }
         }
 
         const enquiry = await enquiryRepo.create({
@@ -50,7 +59,7 @@ router.post('/', async (req, res) => {
             whatsappConfirmationSent: false,
         }));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -60,7 +69,7 @@ router.get('/me', protect, async (req, res) => {
         const enquiries = await enquiryRepo.findByUser(req.user.id);
         res.json(ok(enquiries));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -70,7 +79,7 @@ router.get('/', protect, adminOnly, async (req, res) => {
         const enquiries = await enquiryRepo.findAll();
         res.json(ok(enquiries));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 

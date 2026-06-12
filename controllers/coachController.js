@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const coachRepo = require('../repositories/coachRepository');
+const { protect, adminOnly } = require('../middleware/authMiddleware');
 const { ok, fail } = require('../utils/response');
 
 // GET /coaches — list with filtering + pagination
@@ -14,7 +15,7 @@ router.get('/', async (req, res) => {
         });
         res.json(ok(result));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -24,7 +25,7 @@ router.get('/academy/:academyId', async (req, res) => {
         const coaches = await coachRepo.getCoachesByAcademy(req.params.academyId);
         res.json(ok(coaches));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -34,7 +35,7 @@ router.get('/sport/:sport', async (req, res) => {
         const coaches = await coachRepo.getCoachesBySport(req.params.sport);
         res.json(ok(coaches));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -45,7 +46,7 @@ router.get('/by-slug/:slug', async (req, res) => {
         if (!coach) return res.status(404).json(fail('NOT_FOUND', 'Coach not found'));
         res.json(ok(coach));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -56,12 +57,12 @@ router.get('/:id', async (req, res) => {
         if (!coach) return res.status(404).json(fail('NOT_FOUND', 'Coach not found'));
         res.json(ok(coach));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
 // POST create coach
-router.post('/', async (req, res) => {
+router.post('/', protect, adminOnly, async (req, res) => {
     try {
         const { name, slug, avatar, certifications, experienceYears, sportsCoached, specialization, academyId, location, contact, verificationStatus, rating, status } = req.body;
         if (!name || !sportsCoached || !location) {
@@ -78,29 +79,29 @@ router.post('/', async (req, res) => {
         });
         res.status(201).json(ok(coach));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
 // PUT update coach
-router.put('/:id', async (req, res) => {
+router.put('/:id', protect, adminOnly, async (req, res) => {
     try {
         const coach = await coachRepo.updateCoach(req.params.id, req.body);
         if (!coach) return res.status(404).json(fail('NOT_FOUND', 'Coach not found'));
         res.json(ok(coach));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
 // DELETE coach
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', protect, adminOnly, async (req, res) => {
     try {
         const deleted = await coachRepo.deleteCoach(req.params.id);
         if (!deleted) return res.status(404).json(fail('NOT_FOUND', 'Coach not found'));
         res.json(ok({ message: 'Deleted coach with id ' + req.params.id }));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 

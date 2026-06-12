@@ -2,8 +2,17 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const User = require('../models/User');
 const { ok, fail } = require('../utils/response');
+
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 function generateToken(user) {
     return jwt.sign(
@@ -18,15 +27,19 @@ function safeUser(user) {
 }
 
 // POST /auth/register
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
     try {
-        const { name, email, password, phone, role } = req.body;
+        const { name, email, password, phone } = req.body;
 
         if (!name || !email || !password) {
             return res.status(400).json(fail('VALIDATION_ERROR', 'name, email and password are required'));
         }
 
-        const existingUser = await User.findOne({ email });
+        if (password.length < 8) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Password must be at least 8 characters'));
+        }
+
+        const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
             return res.status(409).json(fail('CONFLICT', 'Email already registered'));
         }
@@ -34,24 +47,25 @@ router.post('/register', async (req, res) => {
         // Hash password before saving
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // Always default to athlete — ignore role from request body
         const user = await User.create({
             name,
-            email,
+            email: email.toLowerCase(),
             password: hashedPassword,
             phone: phone || undefined,
-            role: role || 'athlete'
+            role: 'athlete'
         });
 
         const token = generateToken(user);
 
         res.status(201).json(ok({ token, user: safeUser(user) }));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
 // POST /auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
     try {
         const { email, password } = req.body;
 
@@ -59,7 +73,7 @@ router.post('/login', async (req, res) => {
             return res.status(400).json(fail('VALIDATION_ERROR', 'email and password are required'));
         }
 
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ email: email.toLowerCase() });
         if (!user) {
             return res.status(401).json(fail('INVALID_CREDENTIALS', 'Invalid email or password'));
         }
@@ -74,7 +88,7 @@ router.post('/login', async (req, res) => {
 
         res.json(ok({ token, user: safeUser(user) }));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 

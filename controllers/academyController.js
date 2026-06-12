@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
         });
         res.json(ok(result));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -27,7 +27,7 @@ router.get('/sport/:sport', async (req, res) => {
         const academies = await academyRepo.getAcademiesBySport(req.params.sport);
         res.json(ok(academies));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -37,7 +37,7 @@ router.get('/verified/all', async (req, res) => {
         const academies = await academyRepo.getVerifiedAcademies();
         res.json(ok(academies));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -48,7 +48,7 @@ router.get('/by-slug/:slug', async (req, res) => {
         if (!academy) return res.status(404).json(fail('NOT_FOUND', 'Academy not found'));
         res.json(ok(academy));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -59,7 +59,7 @@ router.get('/:id', async (req, res) => {
         if (!academy) return res.status(404).json(fail('NOT_FOUND', 'Academy not found'));
         res.json(ok(academy));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -83,7 +83,7 @@ router.post('/', protect, adminOnly, async (req, res) => {
         });
         res.status(201).json(ok(academy));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -94,7 +94,7 @@ router.put('/:id', protect, adminOnly, async (req, res) => {
         if (!academy) return res.status(404).json(fail('NOT_FOUND', 'Academy not found'));
         res.json(ok(academy));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -105,7 +105,7 @@ router.delete('/:id', protect, adminOnly, async (req, res) => {
         if (!deleted) return res.status(404).json(fail('NOT_FOUND', 'Academy not found'));
         res.json(ok({ message: 'Deleted academy with id ' + req.params.id }));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
