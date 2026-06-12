@@ -1,112 +1,109 @@
 const Academy = require('../models/Academy');
 
-// Get all academies
 const getAllAcademies = async () => {
-    return await Academy.find();
+    return await Academy.find({ status: 'published' });
 };
 
-// Get academy by ID
 const getAcademyById = async (id) => {
     return await Academy.findById(id);
 };
 
-// Get academies by sport — works for both old string data AND new array data
-// Single:   "Cricket"
-// Multiple: "Cricket,Football"
-const getAcademiesBySport = async (sportParam) => {
-    const sports = sportParam.split(',').map(s => s.trim());
-    const regexList = sports.map(s => new RegExp(`^${s}$`, 'i'));
-    return await Academy.find({
-        $or: [
-            { sport: { $elemMatch: { $in: regexList } } },  // new array data
-            { sport: { $in: regexList } }                   // old string data
-        ]
-    });
+const getAcademyBySlug = async (slug) => {
+    return await Academy.findOne({ slug });
 };
 
-// Get academies within max distance
-const getAcademiesByDistance = async (maxKm) => {
-    return await Academy.find({ distanceKm: { $lte: parseFloat(maxKm) } });
-};
+const getAcademiesFiltered = async ({ sport, facility, level, status, search, page = 1, pageSize = 20 }) => {
+    const query = { status: 'published' };
 
-// Get academies by distance AND sport combined
-const getAcademiesByDistanceAndSport = async (maxKm, sportParam) => {
-    const sports = sportParam.split(',').map(s => s.trim());
-    const regexList = sports.map(s => new RegExp(`^${s}$`, 'i'));
-    return await Academy.find({
-        distanceKm: { $lte: parseFloat(maxKm) },
-        $or: [
-            { sport: { $elemMatch: { $in: regexList } } },  // new array data
-            { sport: { $in: regexList } }                   // old string data
-        ]
-    });
-};
+    if (sport) {
+        const sports = sport.split(',').map(s => s.trim().toLowerCase());
+        query.sportsOffered = { $in: sports };
+    }
 
-// Get verified academies (all)
-const getVerifiedAcademies = async () => {
-    return await Academy.find({ verified: true });
-};
+    if (facility) {
+        const facilities = facility.split(',').map(f => f.trim());
+        query.facilities = { $all: facilities };
+    }
 
-// Get verified academies within max distance
-const getVerifiedAcademiesByDistance = async (maxKm) => {
-    return await Academy.find({
-        verified: true,
-        distanceKm: { $lte: parseFloat(maxKm) }
-    });
-};
+    if (level) {
+        const levels = level.split(',').map(l => l.trim());
+        query.trainingLevels = { $in: levels };
+    }
 
-// Get academies by goal type with optional sport + distance filters
-const getAcademiesByGoal = async (goalType, filters = {}) => {
-    const query = {};
-    if (goalType === 'short-term') query.goalType = { $in: ['short-term', 'both'] };
-    else if (goalType === 'long-term') query.goalType = { $in: ['long-term', 'both'] };
-    if (filters.sport) {
-        const sports = filters.sport.split(',').map(s => s.trim());
-        const regexList = sports.map(s => new RegExp(`^${s}$`, 'i'));
+    if (status) {
+        const statuses = status.split(',').map(s => s.trim());
+        query.verificationStatus = { $in: statuses };
+    }
+
+    if (search) {
+        const regex = new RegExp(search, 'i');
         query.$or = [
-            { sport: { $elemMatch: { $in: regexList } } },
-            { sport: { $in: regexList } }
+            { name: regex },
+            { description: regex },
+            { 'location.city': regex },
+            { 'location.state': regex },
+            { sportsOffered: { $in: [regex] } },
         ];
     }
-    if (filters.maxKm) query.distanceKm = { $lte: parseFloat(filters.maxKm) };
-    return await Academy.find(query);
+
+    const total = await Academy.countDocuments(query);
+    const skip = (page - 1) * pageSize;
+    const data = await Academy.find(query).sort({ createdAt: -1 }).skip(skip).limit(pageSize);
+
+    return {
+        items: data,
+        pagination: {
+            page,
+            pageSize,
+            total,
+            hasMore: skip + data.length < total,
+        },
+    };
 };
 
-// Check duplicate academy
-const findDuplicate = async (name, sport, location) => {
+const getAcademiesBySport = async (sportParam) => {
+    const sports = sportParam.split(',').map(s => s.trim().toLowerCase());
+    return await Academy.find({ sportsOffered: { $in: sports }, status: 'published' });
+};
+
+const getVerifiedAcademies = async () => {
+    return await Academy.find({ verificationStatus: 'verified', status: 'published' });
+};
+
+const findDuplicate = async (name, city) => {
     return await Academy.findOne({
-        name:     { $regex: new RegExp(`^${name}$`, 'i') },
-        location: { $regex: new RegExp(`^${location}$`, 'i') }
+        name: { $regex: new RegExp(`^${name}$`, 'i') },
+        'location.city': { $regex: new RegExp(`^${city}$`, 'i') },
     });
 };
 
-// Create new academy
 const createAcademy = async (data) => {
     const academy = new Academy(data);
     return await academy.save();
 };
 
-// Update academy by ID
 const updateAcademy = async (id, data) => {
     return await Academy.findByIdAndUpdate(id, data, { new: true });
 };
 
-// Delete academy by ID
 const deleteAcademy = async (id) => {
     return await Academy.findByIdAndDelete(id);
+};
+
+const deleteAll = async () => {
+    return await Academy.deleteMany({});
 };
 
 module.exports = {
     getAllAcademies,
     getAcademyById,
+    getAcademyBySlug,
+    getAcademiesFiltered,
     getAcademiesBySport,
-    getAcademiesByDistance,
-    getAcademiesByDistanceAndSport,
     getVerifiedAcademies,
-    getVerifiedAcademiesByDistance,
-    getAcademiesByGoal,
     findDuplicate,
     createAcademy,
     updateAcademy,
-    deleteAcademy
+    deleteAcademy,
+    deleteAll,
 };
