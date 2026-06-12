@@ -1,5 +1,9 @@
 const Academy = require('../models/Academy');
 
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const getAllAcademies = async () => {
     return await Academy.find({ status: 'published' });
 };
@@ -36,7 +40,7 @@ const getAcademiesFiltered = async ({ sport, facility, level, status, search, pa
     }
 
     if (search) {
-        const regex = new RegExp(search, 'i');
+        const regex = new RegExp(escapeRegex(search), 'i');
         query.$or = [
             { name: regex },
             { description: regex },
@@ -72,8 +76,8 @@ const getVerifiedAcademies = async () => {
 
 const findDuplicate = async (name, city) => {
     return await Academy.findOne({
-        name: { $regex: new RegExp(`^${name}$`, 'i') },
-        'location.city': { $regex: new RegExp(`^${city}$`, 'i') },
+        name: { $regex: new RegExp(`^${escapeRegex(name)}$`, 'i') },
+        'location.city': { $regex: new RegExp(`^${escapeRegex(city)}$`, 'i') },
     });
 };
 

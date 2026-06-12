@@ -1,5 +1,9 @@
 const Coach = require('../models/Coach');
 
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const getAllCoaches = async () => {
     return await Coach.find({ status: 'published' });
 };
@@ -21,7 +25,7 @@ const getCoachesFiltered = async ({ sport, search, page = 1, pageSize = 20 }) =>
     }
 
     if (search) {
-        const regex = new RegExp(search, 'i');
+        const regex = new RegExp(escapeRegex(search), 'i');
         query.$or = [
             { name: regex },
             { 'location.city': regex },
@@ -59,7 +63,7 @@ const getCoachesBySport = async (sport) => {
 
 const findDuplicate = async (name, academyId) => {
     return await Coach.findOne({
-        name: { $regex: new RegExp(`^${name}$`, 'i') },
+        name: { $regex: new RegExp(`^${escapeRegex(name)}$`, 'i') },
         academyId,
     });
 };
