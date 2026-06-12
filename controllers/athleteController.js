@@ -11,7 +11,7 @@ router.get('/', async (req, res) => {
         const athletes = await athleteRepo.getAllAthletes();
         res.json(ok(athletes));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -20,7 +20,7 @@ router.get('/sport/:sport', async (req, res) => {
         const athletes = await athleteRepo.getAthletesBySport(req.params.sport);
         res.json(ok(athletes));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -29,7 +29,7 @@ router.get('/distance/:maxKm', async (req, res) => {
         const athletes = await athleteRepo.getAthletesByDistance(req.params.maxKm);
         res.json(ok(athletes));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -41,7 +41,7 @@ router.get('/distance/:maxKm/sport/:sport', async (req, res) => {
         );
         res.json(ok(athletes));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -57,7 +57,7 @@ router.get('/goal/:goalType', async (req, res) => {
         const athletes = await athleteRepo.getAthletesByGoal(goalType, filters);
         res.json(ok(athletes));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -67,7 +67,7 @@ router.get('/:id', async (req, res) => {
         if (!athlete) return res.status(404).json(fail('NOT_FOUND', 'Athlete not found'));
         res.json(ok(athlete));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -89,7 +89,7 @@ router.post('/', protect, adminOnly, async (req, res) => {
         });
         res.status(201).json(ok(athlete));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -102,7 +102,7 @@ router.put('/:id', protect, adminOnly, async (req, res) => {
         if (!athlete) return res.status(404).json(fail('NOT_FOUND', 'Athlete not found'));
         res.json(ok(athlete));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -112,7 +112,7 @@ router.delete('/:id', protect, adminOnly, async (req, res) => {
         if (!deleted) return res.status(404).json(fail('NOT_FOUND', 'Athlete not found'));
         res.json(ok({ message: 'Deleted athlete with id ' + req.params.id }));
     } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', err.message));
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
