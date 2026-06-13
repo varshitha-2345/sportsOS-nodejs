@@ -7,8 +7,10 @@ const rateLimit = require('express-rate-limit');
 const User = require('../models/User');
 const RefreshToken = require('../models/RefreshToken');
 const { sendWelcomeEmail, sendPasswordResetEmail } = require('../services/emailService');
+const { logEvent } = require('../services/auditService');
 const { ok, fail } = require('../utils/response');
 const { protect } = require('../middleware/authMiddleware');
+const logger = require('../utils/logger');
 
 // Strict login limiter: 5 attempts per 15 min per IP (brute force protection)
 const loginLimiter = rateLimit({
@@ -182,8 +184,10 @@ router.post('/register', registerLimiter, async (req, res) => {
 
         // Send welcome email (non-blocking)
         sendWelcomeEmail(user).catch((err) => {
-            console.error('Failed to send welcome email:', err.message);
+            logger.error('email.welcome_failed', { userId: user._id, message: err.message });
         });
+
+        logEvent({ userId: user._id, action: 'user.registered', metadata: { email: user.email }, req });
 
         res.status(201).json(ok({ token, user: safeUser(user) }));
     } catch (err) {
@@ -215,6 +219,8 @@ router.post('/login', loginLimiter, async (req, res) => {
         const refreshTokenValue = generateRefreshTokenValue();
         await storeRefreshToken(refreshTokenValue, user._id, req);
         setRefreshTokenCookie(res, refreshTokenValue);
+
+        logEvent({ userId: user._id, action: 'user.login', metadata: { email: user.email }, req });
 
         res.json(ok({ token, user: safeUser(user) }));
     } catch (err) {
@@ -279,7 +285,7 @@ router.post('/refresh', async (req, res) => {
 
 // ─── POST /auth/logout ───────────────────────────────────────
 
-router.post('/logout', async (req, res) => {
+router.post('/logout', protect, async (req, res) => {
     try {
         const refreshTokenValue = req.cookies?.refreshToken;
         if (refreshTokenValue) {
@@ -289,6 +295,7 @@ router.post('/logout', async (req, res) => {
             );
         }
         clearRefreshTokenCookie(res);
+        logEvent({ userId: req.user.id, action: 'user.logout', req });
         res.json(ok({ message: 'Logged out successfully' }));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
@@ -400,6 +407,7 @@ router.put('/onboarding', protect, authLimiter, async (req, res) => {
         if (!user) {
             return res.status(404).json(fail('NOT_FOUND', 'User not found'));
         }
+        logEvent({ userId: req.user.id, action: 'user.onboarding_completed', metadata: { role: update.role }, req });
         res.json(ok(safeUser(user)));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
@@ -455,6 +463,7 @@ router.patch('/profile', protect, authLimiter, async (req, res) => {
         if (!user) {
             return res.status(404).json(fail('NOT_FOUND', 'User not found'));
         }
+        logEvent({ userId: req.user.id, action: 'user.profile_updated', metadata: { fields: Object.keys(update) }, req });
         res.json(ok(safeUser(user)));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
@@ -502,8 +511,10 @@ router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
 
         // Send email (non-blocking)
         sendPasswordResetEmail(user, resetToken).catch((err) => {
-            console.error('Failed to send reset email:', err.message);
+            logger.error('email.reset_failed', { userId: user._id, message: err.message });
         });
+
+        logEvent({ userId: user._id, action: 'user.password_reset_requested', metadata: { email: normalizedEmail }, req });
 
         return res.json(ok({ message: 'If an account exists, a reset link has been sent.' }));
     } catch (err) {
@@ -553,6 +564,8 @@ router.post('/reset-password', resetPasswordLimiter, async (req, res) => {
             { userId: user._id, revokedAt: null },
             { revokedAt: new Date() }
         );
+
+        logEvent({ userId: user._id, action: 'user.password_reset_completed', req });
 
         return res.json(ok({ message: 'Password reset successful. Please login with your new password.' }));
     } catch (err) {
