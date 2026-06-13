@@ -1,8 +1,40 @@
 const Athlete = require('../models/Athlete');
 
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Get all athletes
 const getAllAthletes = async () => {
     return await Athlete.find();
+};
+
+// Get athletes with filtering + pagination
+const getAthletesFiltered = async ({ sport, page = 1, pageSize = 20 }) => {
+    const query = {};
+
+    if (sport) {
+        const sports = sport.split(',').map(s => s.trim());
+        const regexList = sports.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i'));
+        query.$or = [
+            { sport: { $elemMatch: { $in: regexList } } },
+            { sport: { $in: regexList } },
+        ];
+    }
+
+    const total = await Athlete.countDocuments(query);
+    const skip = (page - 1) * pageSize;
+    const data = await Athlete.find(query).sort({ createdAt: -1 }).skip(skip).limit(pageSize);
+
+    return {
+        items: data,
+        pagination: {
+            page,
+            pageSize,
+            total,
+            hasMore: skip + data.length < total,
+        },
+    };
 };
 
 // Get athlete by ID
@@ -15,7 +47,7 @@ const getAthleteById = async (id) => {
 // Multiple: "Cricket,Football"
 const getAthletesBySport = async (sportParam) => {
     const sports = sportParam.split(',').map(s => s.trim());
-    const regexList = sports.map(s => new RegExp(`^${s}$`, 'i'));
+    const regexList = sports.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i'));
     return await Athlete.find({
         $or: [
             { sport: { $elemMatch: { $in: regexList } } },  // new array data
@@ -32,7 +64,7 @@ const getAthletesByDistance = async (maxKm) => {
 // Get athletes by distance AND sport combined
 const getAthletesByDistanceAndSport = async (maxKm, sportParam) => {
     const sports = sportParam.split(',').map(s => s.trim());
-    const regexList = sports.map(s => new RegExp(`^${s}$`, 'i'));
+    const regexList = sports.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i'));
     return await Athlete.find({
         distanceKm: { $lte: parseFloat(maxKm) },
         $or: [
@@ -49,7 +81,7 @@ const getAthletesByGoal = async (goalType, filters = {}) => {
     else if (goalType === 'long-term') query.goalType = { $in: ['long-term', 'both'] };
     if (filters.sport) {
         const sports = filters.sport.split(',').map(s => s.trim());
-        const regexList = sports.map(s => new RegExp(`^${s}$`, 'i'));
+        const regexList = sports.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i'));
         query.$or = [
             { sport: { $elemMatch: { $in: regexList } } },
             { sport: { $in: regexList } }
@@ -62,8 +94,8 @@ const getAthletesByGoal = async (goalType, filters = {}) => {
 // Check duplicate athlete
 const findDuplicate = async (name, sport, age, academy) => {
     return await Athlete.findOne({
-        name:    { $regex: new RegExp(`^${name}$`, 'i') },
-        academy: { $regex: new RegExp(`^${academy}$`, 'i') },
+        name:    { $regex: new RegExp(`^${escapeRegex(name)}$`, 'i') },
+        academy: { $regex: new RegExp(`^${escapeRegex(academy)}$`, 'i') },
         age:     age
     });
 };
@@ -86,6 +118,7 @@ const deleteAthlete = async (id) => {
 
 module.exports = {
     getAllAthletes,
+    getAthletesFiltered,
     getAthleteById,
     getAthletesBySport,
     getAthletesByDistance,

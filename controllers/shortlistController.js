@@ -5,6 +5,7 @@ const shortlistRepo = require('../repositories/shortlistRepository');
 const Academy = require('../models/Academy');
 const Coach = require('../models/Coach');
 const { ok, fail } = require('../utils/response');
+const { validateObjectId } = require('../utils/validation');
 
 // GET /shortlist/me — get current user's shortlist (raw records)
 router.get('/me', protect, async (req, res) => {
@@ -72,6 +73,7 @@ router.post('/', protect, async (req, res) => {
 // DELETE /shortlist/:id — remove item from shortlist
 router.delete('/:id', protect, async (req, res) => {
     try {
+        if (!validateObjectId(req, res)) return;
         const item = await shortlistRepo.findById(req.params.id);
         if (!item) return res.status(404).json(fail('NOT_FOUND', 'Shortlist item not found'));
         if (item.userId.toString() !== req.user.id) {

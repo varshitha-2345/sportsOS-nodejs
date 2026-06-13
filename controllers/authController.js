@@ -10,6 +10,7 @@ const { sendWelcomeEmail, sendPasswordResetEmail } = require('../services/emailS
 const { logEvent } = require('../services/auditService');
 const { ok, fail } = require('../utils/response');
 const { protect } = require('../middleware/authMiddleware');
+const { isValidEmail } = require('../utils/validation');
 const logger = require('../utils/logger');
 
 // Strict login limiter: 5 attempts per 15 min per IP (brute force protection)
@@ -56,6 +57,16 @@ const resetPasswordLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 10,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many password reset attempts. Please try again later.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip,
+});
+
+// Refresh token limiter: 20 per 15 min per IP (handles token rotation for legitimate clients)
+const refreshLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many token refresh attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => req.ip,
@@ -158,20 +169,26 @@ router.post('/register', registerLimiter, async (req, res) => {
             return res.status(400).json(fail('VALIDATION_ERROR', 'name, email and password are required'));
         }
 
-        if (password.length < 8) {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'Password must be at least 8 characters'));
+        if (!isValidEmail(email)) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid email format'));
         }
 
-        const existingUser = await User.findOne({ email: email.toLowerCase() });
+        const passwordError = validatePassword(password);
+        if (passwordError) {
+            return res.status(400).json(fail('VALIDATION_ERROR', passwordError));
+        }
+
+        const normalizedEmail = email.toLowerCase();
+        const existingUser = await User.findOne({ email: normalizedEmail });
         if (existingUser) {
-            return res.status(409).json(fail('CONFLICT', 'Email already registered'));
+            return res.status(400).json(fail('VALIDATION_ERROR', 'name, email and password are required'));
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const user = await User.create({
             name,
-            email: email.toLowerCase(),
+            email: normalizedEmail,
             password: hashedPassword,
             phone: phone || undefined,
             role: 'athlete'
@@ -230,7 +247,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 
 // ─── POST /auth/refresh ──────────────────────────────────────
 
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', refreshLimiter, async (req, res) => {
     try {
         const refreshTokenValue = req.cookies?.refreshToken;
         if (!refreshTokenValue) {

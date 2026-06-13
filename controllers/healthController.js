@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
+const { protect, adminOnly } = require('../middleware/authMiddleware');
 
 const startTime = Date.now();
 
@@ -22,7 +23,7 @@ router.get('/', (req, res) => {
     });
 });
 
-router.get('/detailed', (req, res) => {
+router.get('/detailed', protect, adminOnly, (req, res) => {
     const dbState = mongoose.connection.readyState;
     const dbStates = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' };
 

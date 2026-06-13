@@ -28,6 +28,7 @@ const cookieParser = require('cookie-parser');
 const mongoSanitize = require('express-mongo-sanitize');
 const connectDB = require("./config/db");
 const requestIdMiddleware = require('./middleware/requestId');
+const requestTimeout = require('./middleware/requestTimeout');
 const logger = require('./utils/logger');
 const app = express();
 
@@ -69,6 +70,7 @@ async function start() {
   app.use(helmet());
   app.use(cookieParser());
   app.use(mongoSanitize());
+  app.use(requestTimeout(30000));
   app.use(cors({
     origin: ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : (process.env.NODE_ENV === 'production' ? false : true),
     credentials: true,
