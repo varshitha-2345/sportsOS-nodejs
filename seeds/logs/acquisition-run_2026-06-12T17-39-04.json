@@ -1,0 +1,19 @@
+{
+  "summary": {
+    "runId": "run_2026-06-12T17-39-04",
+    "startTime": "2026-06-12T17:39:04.532Z",
+    "endTime": "2026-06-12T17:39:04.534Z",
+    "durationMs": 2,
+    "stats": {
+      "discovered": 5,
+      "verified": 0,
+      "inserted": 0,
+      "updated": 0,
+      "skipped": 0,
+      "duplicates": 0,
+      "failed": 0
+    },
+    "totalProcessed": 5
+  },
+  "records": []
+}
