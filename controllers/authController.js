@@ -2,33 +2,132 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const User = require('../models/User');
+const RefreshToken = require('../models/RefreshToken');
 const { ok, fail } = require('../utils/response');
 const { protect } = require('../middleware/authMiddleware');
 
+// Strict login limiter: 5 attempts per 15 min per IP (brute force protection)
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many login attempts. Please try again in 15 minutes.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip,
+});
+
+// Register limiter: 3 accounts per hour per IP (spam prevention)
+const registerLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 3,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many registration attempts. Please try again later.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip,
+});
+
+// General auth limiter: 20 per 15 min (me, onboarding, etc.)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 20,
-    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } },
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many requests. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
 });
 
-function generateToken(user) {
+// ─── Token Helpers ───────────────────────────────────────────
+
+function parseDuration(str) {
+    const match = String(str).match(/^(\d+)\s*(s|m|h|d)$/);
+    if (!match) return 15 * 60 * 1000;
+    const val = parseInt(match[1], 10);
+    const unit = match[2];
+    const multipliers = { s: 1000, m: 60 * 1000, h: 60 * 60 * 1000, d: 24 * 60 * 60 * 1000 };
+    return val * multipliers[unit];
+}
+
+function generateAccessToken(user) {
     return jwt.sign(
         { id: user.id || user._id, name: user.name, email: user.email, role: user.role },
         process.env.JWT_SECRET,
-        { expiresIn: '7d' }
+        { expiresIn: process.env.JWT_ACCESS_EXPIRY || '15m' }
     );
 }
 
-function safeUser(user) {
-    return { id: user.id || user._id, name: user.name, email: user.email, phone: user.phone || '', role: user.role, onboardingCompleted: !!user.onboardingCompleted };
+function generateRefreshTokenValue() {
+    return crypto.randomBytes(40).toString('hex');
 }
 
-// POST /auth/register
-router.post('/register', authLimiter, async (req, res) => {
+function getRefreshExpiry() {
+    return parseDuration(process.env.JWT_REFRESH_EXPIRY || '30d');
+}
+
+function isProduction() {
+    return process.env.NODE_ENV === 'production';
+}
+
+function setRefreshTokenCookie(res, token) {
+    const maxAge = getRefreshExpiry();
+    res.cookie('refreshToken', token, {
+        httpOnly: true,
+        secure: isProduction(),
+        sameSite: isProduction() ? 'none' : 'lax',
+        path: '/auth',
+        maxAge,
+    });
+}
+
+function clearRefreshTokenCookie(res) {
+    res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: isProduction(),
+        sameSite: isProduction() ? 'none' : 'lax',
+        path: '/auth',
+    });
+}
+
+async function storeRefreshToken(token, userId, req) {
+    const expiresAt = new Date(Date.now() + getRefreshExpiry());
+    return RefreshToken.create({
+        token,
+        userId,
+        userAgent: req.headers['user-agent'] || '',
+        ipAddress: req.ip || '',
+        expiresAt,
+    });
+}
+
+function safeUser(user) {
+    return {
+        id: user.id || user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone || '',
+        role: user.role,
+        onboardingCompleted: !!user.onboardingCompleted,
+        age: user.age ?? null,
+        gender: user.gender || null,
+        sportInterests: user.sportInterests || [],
+        skillLevel: user.skillLevel || null,
+        goals: user.goals || '',
+        location: user.location || '',
+        children: (user.children || []).map(c => ({
+            id: c._id?.toString?.() || c.id,
+            name: c.name,
+            age: c.age,
+            gender: c.gender || null,
+            sportInterests: c.sportInterests || [],
+            skillLevel: c.skillLevel || null,
+        })),
+    };
+}
+
+// ─── POST /auth/register ─────────────────────────────────────
+
+router.post('/register', registerLimiter, async (req, res) => {
     try {
         const { name, email, password, phone } = req.body;
 
@@ -45,10 +144,8 @@ router.post('/register', authLimiter, async (req, res) => {
             return res.status(409).json(fail('CONFLICT', 'Email already registered'));
         }
 
-        // Hash password before saving
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Always default to athlete — ignore role from request body
         const user = await User.create({
             name,
             email: email.toLowerCase(),
@@ -57,7 +154,10 @@ router.post('/register', authLimiter, async (req, res) => {
             role: 'athlete'
         });
 
-        const token = generateToken(user);
+        const token = generateAccessToken(user);
+        const refreshTokenValue = generateRefreshTokenValue();
+        await storeRefreshToken(refreshTokenValue, user._id, req);
+        setRefreshTokenCookie(res, refreshTokenValue);
 
         res.status(201).json(ok({ token, user: safeUser(user) }));
     } catch (err) {
@@ -65,8 +165,9 @@ router.post('/register', authLimiter, async (req, res) => {
     }
 });
 
-// POST /auth/login
-router.post('/login', authLimiter, async (req, res) => {
+// ─── POST /auth/login ────────────────────────────────────────
+
+router.post('/login', loginLimiter, async (req, res) => {
     try {
         const { email, password } = req.body;
 
@@ -84,8 +185,10 @@ router.post('/login', authLimiter, async (req, res) => {
             return res.status(401).json(fail('INVALID_CREDENTIALS', 'Invalid email or password'));
         }
 
-        // Generate JWT token
-        const token = generateToken(user);
+        const token = generateAccessToken(user);
+        const refreshTokenValue = generateRefreshTokenValue();
+        await storeRefreshToken(refreshTokenValue, user._id, req);
+        setRefreshTokenCookie(res, refreshTokenValue);
 
         res.json(ok({ token, user: safeUser(user) }));
     } catch (err) {
@@ -93,7 +196,95 @@ router.post('/login', authLimiter, async (req, res) => {
     }
 });
 
-// GET /auth/me — return current user from token
+// ─── POST /auth/refresh ──────────────────────────────────────
+
+router.post('/refresh', async (req, res) => {
+    try {
+        const refreshTokenValue = req.cookies?.refreshToken;
+        if (!refreshTokenValue) {
+            return res.status(401).json(fail('UNAUTHORIZED', 'No refresh token'));
+        }
+
+        const record = await RefreshToken.findOne({ token: refreshTokenValue });
+        if (!record) {
+            clearRefreshTokenCookie(res);
+            return res.status(401).json(fail('UNAUTHORIZED', 'Invalid refresh token'));
+        }
+
+        if (record.revokedAt) {
+            clearRefreshTokenCookie(res);
+            return res.status(401).json(fail('UNAUTHORIZED', 'Refresh token revoked'));
+        }
+
+        if (record.expiresAt < new Date()) {
+            clearRefreshTokenCookie(res);
+            return res.status(401).json(fail('UNAUTHORIZED', 'Refresh token expired'));
+        }
+
+        // Verify JWT validity
+        let decoded;
+        try {
+            decoded = jwt.verify(refreshTokenValue, process.env.JWT_REFRESH_SECRET);
+        } catch {
+            clearRefreshTokenCookie(res);
+            return res.status(401).json(fail('UNAUTHORIZED', 'Invalid refresh token'));
+        }
+
+        const user = await User.findById(decoded.id || record.userId);
+        if (!user) {
+            clearRefreshTokenCookie(res);
+            return res.status(401).json(fail('UNAUTHORIZED', 'User not found'));
+        }
+
+        // Token rotation: revoke old token, issue new pair
+        record.revokedAt = new Date();
+        await record.save();
+
+        const newAccessToken = generateAccessToken(user);
+        const newRefreshTokenValue = generateRefreshTokenValue();
+        await storeRefreshToken(newRefreshTokenValue, user._id, req);
+        setRefreshTokenCookie(res, newRefreshTokenValue);
+
+        res.json(ok({ token: newAccessToken }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── POST /auth/logout ───────────────────────────────────────
+
+router.post('/logout', async (req, res) => {
+    try {
+        const refreshTokenValue = req.cookies?.refreshToken;
+        if (refreshTokenValue) {
+            await RefreshToken.findOneAndUpdate(
+                { token: refreshTokenValue },
+                { revokedAt: new Date() }
+            );
+        }
+        clearRefreshTokenCookie(res);
+        res.json(ok({ message: 'Logged out successfully' }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── GET /auth/session ───────────────────────────────────────
+
+router.get('/session', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+        res.json(ok({ authenticated: true, user: safeUser(user) }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── GET /auth/me ────────────────────────────────────────────
+
 router.get('/me', protect, async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
@@ -106,13 +297,134 @@ router.get('/me', protect, async (req, res) => {
     }
 });
 
-// PUT /auth/onboarding — mark onboarding as completed
-router.put('/onboarding', protect, async (req, res) => {
+// ─── Validation Helpers ──────────────────────────────────────
+
+const VALID_SKILL_LEVELS = ['beginner', 'intermediate', 'advanced', 'competitive'];
+const VALID_GENDERS = ['male', 'female', 'other', 'prefer_not_to_say'];
+
+function validateOnboarding(body) {
+    const errors = [];
+    if (body.age !== undefined) {
+        const a = Number(body.age);
+        if (isNaN(a) || a < 1 || a > 120) errors.push('age must be between 1 and 120');
+    }
+    if (body.gender !== undefined && !VALID_GENDERS.includes(body.gender)) {
+        errors.push('gender must be male, female, other, or prefer_not_to_say');
+    }
+    if (body.sportInterests !== undefined) {
+        if (!Array.isArray(body.sportInterests)) errors.push('sportInterests must be an array');
+        else if (body.sportInterests.length === 0) errors.push('sportInterests must have at least one sport');
+    }
+    if (body.skillLevel !== undefined && !VALID_SKILL_LEVELS.includes(body.skillLevel)) {
+        errors.push('skillLevel must be beginner, intermediate, advanced, or competitive');
+    }
+    if (body.goals !== undefined && typeof body.goals !== 'string') {
+        errors.push('goals must be a string');
+    }
+    if (body.location !== undefined && typeof body.location !== 'string') {
+        errors.push('location must be a string');
+    }
+    if (body.children !== undefined) {
+        if (!Array.isArray(body.children)) errors.push('children must be an array');
+        else {
+            body.children.forEach((c, i) => {
+                if (!c.name || typeof c.name !== 'string') errors.push(`children[${i}].name is required`);
+                const age = Number(c.age);
+                if (isNaN(age) || age < 1 || age > 25) errors.push(`children[${i}].age must be between 1 and 25`);
+            });
+        }
+    }
+    return errors;
+}
+
+// ─── PUT /auth/onboarding ────────────────────────────────────
+
+router.put('/onboarding', protect, authLimiter, async (req, res) => {
     try {
+        const { role, age, gender, sportInterests, skillLevel, goals, location, children } = req.body;
+
+        const errors = validateOnboarding(req.body);
+        if (errors.length > 0) {
+            return res.status(400).json(fail('VALIDATION_ERROR', errors.join('; ')));
+        }
+
+        const update = { onboardingCompleted: true };
+        if (role !== undefined) update.role = role;
+        if (age !== undefined) update.age = Number(age);
+        if (gender !== undefined) update.gender = gender;
+        if (sportInterests !== undefined) update.sportInterests = sportInterests;
+        if (skillLevel !== undefined) update.skillLevel = skillLevel;
+        if (goals !== undefined) update.goals = goals;
+        if (location !== undefined) update.location = location;
+        if (children !== undefined) {
+            update.children = children.map(c => ({
+                name: c.name,
+                age: Number(c.age),
+                gender: c.gender || undefined,
+                sportInterests: c.sportInterests || [],
+                skillLevel: c.skillLevel || undefined,
+            }));
+        }
+
         const user = await User.findByIdAndUpdate(
             req.user.id,
-            { onboardingCompleted: true },
-            { new: true }
+            update,
+            { new: true, runValidators: true }
+        );
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+        res.json(ok(safeUser(user)));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── Profile Update Helpers ──────────────────────────────────
+
+const PROFILE_ALLOWED_FIELDS = ['name', 'phone'];
+
+function validateProfile(body) {
+    const errors = [];
+    if (body.name !== undefined) {
+        if (typeof body.name !== 'string' || body.name.trim().length < 1) {
+            errors.push('name must be a non-empty string');
+        } else if (body.name.trim().length > 100) {
+            errors.push('name must be at most 100 characters');
+        }
+    }
+    if (body.phone !== undefined) {
+        if (typeof body.phone !== 'string') {
+            errors.push('phone must be a string');
+        }
+    }
+    return errors;
+}
+
+// ─── PATCH /auth/profile ─────────────────────────────────────
+
+router.patch('/profile', protect, authLimiter, async (req, res) => {
+    try {
+        const update = {};
+        for (const field of PROFILE_ALLOWED_FIELDS) {
+            if (req.body[field] !== undefined) {
+                update[field] = field === 'name' ? req.body[field].trim() : req.body[field];
+            }
+        }
+
+        if (Object.keys(update).length === 0) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'No valid fields to update'));
+        }
+
+        const errors = validateProfile(req.body);
+        if (errors.length > 0) {
+            return res.status(400).json(fail('VALIDATION_ERROR', errors.join('; ')));
+        }
+
+        const user = await User.findByIdAndUpdate(
+            req.user.id,
+            update,
+            { new: true, runValidators: true }
         );
         if (!user) {
             return res.status(404).json(fail('NOT_FOUND', 'User not found'));
