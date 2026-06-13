@@ -334,9 +334,13 @@ router.get('/me', protect, async (req, res) => {
 
 const VALID_SKILL_LEVELS = ['beginner', 'intermediate', 'advanced', 'competitive'];
 const VALID_GENDERS = ['male', 'female', 'other', 'prefer_not_to_say'];
+const VALID_ONBOARDING_ROLES = ['athlete', 'parent'];
 
 function validateOnboarding(body) {
     const errors = [];
+    if (body.role !== undefined && !VALID_ONBOARDING_ROLES.includes(body.role)) {
+        errors.push('role must be athlete or parent');
+    }
     if (body.age !== undefined) {
         const a = Number(body.age);
         if (isNaN(a) || a < 1 || a > 120) errors.push('age must be between 1 and 120');
@@ -382,7 +386,7 @@ router.put('/onboarding', protect, authLimiter, async (req, res) => {
         }
 
         const update = { onboardingCompleted: true };
-        if (role !== undefined) update.role = role;
+        if (role !== undefined && VALID_ONBOARDING_ROLES.includes(role)) update.role = role;
         if (age !== undefined) update.age = Number(age);
         if (gender !== undefined) update.gender = gender;
         if (sportInterests !== undefined) update.sportInterests = sportInterests;

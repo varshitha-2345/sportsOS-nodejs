@@ -38,6 +38,12 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .map(s => s.trim())
   .filter(Boolean);
 
+// In production, ALLOWED_ORIGINS must be set to prevent open CORS
+if (process.env.NODE_ENV === 'production' && ALLOWED_ORIGINS.length === 0) {
+  console.error('CRITICAL: ALLOWED_ORIGINS must be set in production. Refusing to start with open CORS.');
+  process.exit(1);
+}
+
 async function start() {
   await connectDB();
 
@@ -64,7 +70,7 @@ async function start() {
   app.use(cookieParser());
   app.use(mongoSanitize());
   app.use(cors({
-    origin: ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : true,
+    origin: ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : (process.env.NODE_ENV === 'production' ? false : true),
     credentials: true,
   }));
   app.use(express.json({ limit: '100kb' }));
