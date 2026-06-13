@@ -5,7 +5,8 @@ const userSchema = new mongoose.Schema({
     email:    { type: String, required: true, unique: true },
     password: { type: String, required: true },
     phone:    { type: String },
-    role:     { type: String, enum: ['athlete', 'parent', 'coach', 'academy_owner', 'admin'], default: 'athlete' }
+    role:     { type: String, enum: ['athlete', 'parent', 'coach', 'academy_owner', 'admin'], default: 'athlete' },
+    onboardingCompleted: { type: Boolean, default: false }
 }, { timestamps: true });
 
 userSchema.set('toJSON', {

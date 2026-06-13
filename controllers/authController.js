@@ -5,6 +5,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const User = require('../models/User');
 const { ok, fail } = require('../utils/response');
+const { protect } = require('../middleware/authMiddleware');
 
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -23,7 +24,7 @@ function generateToken(user) {
 }
 
 function safeUser(user) {
-    return { id: user.id || user._id, name: user.name, email: user.email, role: user.role };
+    return { id: user.id || user._id, name: user.name, email: user.email, phone: user.phone || '', role: user.role, onboardingCompleted: !!user.onboardingCompleted };
 }
 
 // POST /auth/register
@@ -87,6 +88,36 @@ router.post('/login', authLimiter, async (req, res) => {
         const token = generateToken(user);
 
         res.json(ok({ token, user: safeUser(user) }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// GET /auth/me — return current user from token
+router.get('/me', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+        res.json(ok(safeUser(user)));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// PUT /auth/onboarding — mark onboarding as completed
+router.put('/onboarding', protect, async (req, res) => {
+    try {
+        const user = await User.findByIdAndUpdate(
+            req.user.id,
+            { onboardingCompleted: true },
+            { new: true }
+        );
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+        res.json(ok(safeUser(user)));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
