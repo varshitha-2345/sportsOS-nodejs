@@ -14,6 +14,7 @@ const userSchema = new mongoose.Schema({
     password: { type: String, required: true },
     phone:    { type: String },
     role:     { type: String, enum: ['athlete', 'parent', 'coach', 'academy_owner', 'admin'], default: 'athlete' },
+    isVerified: { type: Boolean, default: false },
     onboardingCompleted: { type: Boolean, default: false },
     // Onboarding profile fields
     age:            { type: Number, min: 1, max: 120 },

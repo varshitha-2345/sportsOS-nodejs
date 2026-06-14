@@ -45,6 +45,28 @@ if (process.env.NODE_ENV === 'production' && ALLOWED_ORIGINS.length === 0) {
   process.exit(1);
 }
 
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+
+    if (ALLOWED_ORIGINS.length === 0) {
+      // Development: allow all origins
+      return callback(null, true);
+    }
+
+    if (ALLOWED_ORIGINS.includes(origin)) {
+      return callback(null, true);
+    }
+
+    callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  maxAge: 86400, // 24 hours preflight cache
+};
+
 async function start() {
   await connectDB();
 
@@ -67,14 +89,13 @@ async function start() {
     next();
   });
 
-  app.use(helmet());
+  app.use(helmet({
+    crossOriginResourcePolicy: false,
+  }));
   app.use(cookieParser());
   app.use(mongoSanitize());
   app.use(requestTimeout(30000));
-  app.use(cors({
-    origin: ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : (process.env.NODE_ENV === 'production' ? false : true),
-    credentials: true,
-  }));
+  app.use(cors(corsOptions));
   app.use(express.json({ limit: '100kb' }));
 
   // Sentry request handler

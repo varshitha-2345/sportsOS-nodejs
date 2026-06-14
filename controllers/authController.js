@@ -5,8 +5,9 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const User = require('../models/User');
+const OTP = require('../models/OTP');
 const RefreshToken = require('../models/RefreshToken');
-const { sendWelcomeEmail, sendPasswordResetEmail } = require('../services/emailService');
+const { sendWelcomeEmail, sendPasswordResetEmail, sendOtpEmail } = require('../services/emailService');
 const { logEvent } = require('../services/auditService');
 const { ok, fail } = require('../utils/response');
 const { protect } = require('../middleware/authMiddleware');
@@ -72,6 +73,26 @@ const refreshLimiter = rateLimit({
     keyGenerator: (req) => req.ip,
 });
 
+// OTP limiter: 5 per 15 min per IP (brute force protection)
+const otpLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many verification attempts. Please try again later.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip,
+});
+
+// Resend OTP limiter: 3 per 15 min per IP
+const resendOtpLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 3,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many resend requests. Please try again later.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip,
+});
+
 // ─── Token Helpers ───────────────────────────────────────────
 
 function parseDuration(str) {
@@ -93,6 +114,12 @@ function generateAccessToken(user) {
 
 function generateRefreshTokenValue() {
     return crypto.randomBytes(40).toString('hex');
+}
+
+// ─── OTP Helpers ─────────────────────────────────────────────
+
+function generateOtp() {
+    return crypto.randomInt(100000, 999999).toString();
 }
 
 function getRefreshExpiry() {
@@ -141,6 +168,7 @@ function safeUser(user) {
         email: user.email,
         phone: user.phone || '',
         role: user.role,
+        isVerified: !!user.isVerified,
         onboardingCompleted: !!user.onboardingCompleted,
         age: user.age ?? null,
         gender: user.gender || null,
@@ -191,22 +219,22 @@ router.post('/register', registerLimiter, async (req, res) => {
             email: normalizedEmail,
             password: hashedPassword,
             phone: phone || undefined,
-            role: 'athlete'
+            role: 'athlete',
+            isVerified: false,
         });
 
-        const token = generateAccessToken(user);
-        const refreshTokenValue = generateRefreshTokenValue();
-        await storeRefreshToken(refreshTokenValue, user._id, req);
-        setRefreshTokenCookie(res, refreshTokenValue);
+        // Generate OTP for email verification
+        const otp = generateOtp();
+        await OTP.create({ userId: user._id, otp, type: 'email_verification' });
 
-        // Send welcome email (non-blocking)
-        sendWelcomeEmail(user).catch((err) => {
-            logger.error('email.welcome_failed', { userId: user._id, message: err.message });
+        // Send OTP email (non-blocking)
+        sendOtpEmail({ name: user.name, email: user.email }, otp, 'email_verification').catch((err) => {
+            logger.error('email.otp_failed', { userId: user._id, message: err.message });
         });
 
         logEvent({ userId: user._id, action: 'user.registered', metadata: { email: user.email }, req });
 
-        res.status(201).json(ok({ token, user: safeUser(user) }));
+        res.status(201).json(ok({ requiresVerification: true, email: user.email }));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
@@ -230,6 +258,20 @@ router.post('/login', loginLimiter, async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             return res.status(401).json(fail('INVALID_CREDENTIALS', 'Invalid email or password'));
+        }
+
+        // Check if email is verified
+        if (!user.isVerified) {
+            // Resend OTP automatically
+            const otp = generateOtp();
+            await OTP.findOneAndDelete({ userId: user._id, type: 'email_verification' });
+            await OTP.create({ userId: user._id, otp, type: 'email_verification' });
+
+            sendOtpEmail({ name: user.name, email: user.email }, otp, 'email_verification').catch((err) => {
+                logger.error('email.otp_failed', { userId: user._id, message: err.message });
+            });
+
+            return res.status(403).json(fail('EMAIL_NOT_VERIFIED', 'Please verify your email. A new code has been sent.'));
         }
 
         const token = generateAccessToken(user);
@@ -270,16 +312,7 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
             return res.status(401).json(fail('UNAUTHORIZED', 'Refresh token expired'));
         }
 
-        // Verify JWT validity
-        let decoded;
-        try {
-            decoded = jwt.verify(refreshTokenValue, process.env.JWT_REFRESH_SECRET);
-        } catch {
-            clearRefreshTokenCookie(res);
-            return res.status(401).json(fail('UNAUTHORIZED', 'Invalid refresh token'));
-        }
-
-        const user = await User.findById(decoded.id || record.userId);
+        const user = await User.findById(record.userId);
         if (!user) {
             clearRefreshTokenCookie(res);
             return res.status(401).json(fail('UNAUTHORIZED', 'User not found'));
@@ -316,6 +349,107 @@ router.post('/logout', protect, async (req, res) => {
         res.json(ok({ message: 'Logged out successfully' }));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── POST /auth/verify-otp ──────────────────────────────────
+
+router.post('/verify-otp', otpLimiter, async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+
+        if (!email || !otp) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'email and otp are required'));
+        }
+
+        const normalizedEmail = email.toLowerCase();
+        const user = await User.findOne({ email: normalizedEmail });
+        if (!user) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid email or OTP'));
+        }
+
+        if (user.isVerified) {
+            return res.status(400).json(fail('ALREADY_VERIFIED', 'Email is already verified'));
+        }
+
+        // Find and validate OTP
+        const otpRecord = await OTP.findOne({
+            userId: user._id,
+            otp,
+            type: 'email_verification',
+        });
+
+        if (!otpRecord) {
+            return res.status(400).json(fail('INVALID_OTP', 'Invalid or expired OTP'));
+        }
+
+        // Check expiry
+        if (otpRecord.expiresAt < new Date()) {
+            await OTP.findByIdAndDelete(otpRecord._id);
+            return res.status(400).json(fail('OTP_EXPIRED', 'OTP has expired. Please request a new one.'));
+        }
+
+        // Delete OTP
+        await OTP.findByIdAndDelete(otpRecord._id);
+
+        // Mark user as verified
+        user.isVerified = true;
+        await user.save();
+
+        // Generate tokens
+        const token = generateAccessToken(user);
+        const refreshTokenValue = generateRefreshTokenValue();
+        await storeRefreshToken(refreshTokenValue, user._id, req);
+        setRefreshTokenCookie(res, refreshTokenValue);
+
+        // Send welcome email (non-blocking)
+        sendWelcomeEmail(user).catch((err) => {
+            logger.error('email.welcome_failed', { userId: user._id, message: err.message });
+        });
+
+        logEvent({ userId: user._id, action: 'user.email_verified', metadata: { email: user.email }, req });
+
+        res.json(ok({ token, user: safeUser(user) }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── POST /auth/resend-otp ──────────────────────────────────
+
+router.post('/resend-otp', resendOtpLimiter, async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email || typeof email !== 'string') {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Email is required'));
+        }
+
+        const normalizedEmail = email.toLowerCase();
+        const user = await User.findOne({ email: normalizedEmail });
+
+        // Always return success to prevent email enumeration
+        if (!user || user.isVerified) {
+            return res.json(ok({ message: 'If an account exists, a new code has been sent.' }));
+        }
+
+        // Delete previous OTP
+        await OTP.findOneAndDelete({ userId: user._id, type: 'email_verification' });
+
+        // Generate new OTP
+        const otp = generateOtp();
+        await OTP.create({ userId: user._id, otp, type: 'email_verification' });
+
+        // Send OTP email (non-blocking)
+        sendOtpEmail({ name: user.name, email: user.email }, otp, 'email_verification').catch((err) => {
+            logger.error('email.otp_failed', { userId: user._id, message: err.message });
+        });
+
+        logEvent({ userId: user._id, action: 'user.otp_resent', metadata: { email: user.email }, req });
+
+        return res.json(ok({ message: 'If an account exists, a new code has been sent.' }));
+    } catch (err) {
+        return res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
