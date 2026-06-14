@@ -91,6 +91,7 @@ async function start() {
   app.use('/coaches',   require('./controllers/coachController'));
   app.use('/shortlist', require('./controllers/shortlistController'));
   app.use('/enquiries', require('./controllers/enquiryController'));
+  app.use('/admin',     require('./controllers/adminController'));
 
   // Sentry error handler
   if (process.env.SENTRY_DSN) {

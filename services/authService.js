@@ -23,6 +23,8 @@ const Role   = require('../models/Role');
 const OTP    = require('../models/OTP');
 const bcrypt = require('bcryptjs');
 const jwt    = require('jsonwebtoken');
+const { sendOtpEmail } = require('../services/emailService');
+const logger = require('../utils/logger');
 
 // ─── 1. REGISTER ─────────────────────────────────────────────
 // Creates a new user account.
@@ -49,7 +51,12 @@ const registerUser = async ({ name, email, phone, password, role = 'athlete' }) 
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   await OTP.create({ userId: user._id, otp, type: 'email_verification' });
 
-  // TODO: Send OTP to user's email via email service
+  // Send OTP via email
+  const emailResult = await sendOtpEmail({ name, email }, otp, 'email_verification');
+  if (!emailResult.sent) {
+    logger.warn('Registration OTP email failed', { userId: user._id, reason: emailResult.reason });
+  }
+
   return { message: 'Registered. Please verify your email.', userId: user._id };
 };
 
@@ -113,7 +120,12 @@ const forgotPassword = async ({ email }) => {
     expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
   });
 
-  // TODO: Send OTP to user's email
+  // Send OTP via email
+  const emailResult = await sendOtpEmail({ name: user.name, email: user.email }, otp, 'password_reset');
+  if (!emailResult.sent) {
+    logger.warn('Password reset OTP email failed', { userId: user._id, reason: emailResult.reason });
+  }
+
   return { message: 'OTP sent to email' };
 };
 
@@ -160,7 +172,15 @@ const sendPhoneOtp = async ({ userId, phone }) => {
   // Update the phone number on user record if provided
   if (phone) await User.findByIdAndUpdate(userId, { phone });
 
-  // TODO: Send OTP via SMS / WhatsApp gateway
+  // Send OTP via email (phone OTP delivered via email until SMS gateway is integrated)
+  const user = await User.findById(userId);
+  if (user) {
+    const emailResult = await sendOtpEmail({ name: user.name, email: user.email }, otp, 'phone_verification');
+    if (!emailResult.sent) {
+      logger.warn('Phone verification OTP email failed', { userId, reason: emailResult.reason });
+    }
+  }
+
   return { message: 'OTP sent to phone' };
 };
 
@@ -247,7 +267,6 @@ const updateTheme = async (userId, themePreference) => {
 
 // ─── 12. LOGOUT ──────────────────────────────────────────────
 // Stateless JWT — client discards tokens.
-// TODO: If refresh tokens stored in DB, delete them here.
 const logout = async ({ userId }) => {
   return { message: 'Logged out successfully' };
 };

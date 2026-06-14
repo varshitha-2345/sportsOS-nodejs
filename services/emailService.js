@@ -1,5 +1,6 @@
 const { Resend } = require('resend');
-const { welcomeTemplate, passwordResetTemplate, plainTextWelcome, plainTextPasswordReset } = require('../templates/emailTemplates');
+const { welcomeTemplate, passwordResetTemplate, otpTemplate, plainTextWelcome, plainTextPasswordReset, plainTextOtp } = require('../templates/emailTemplates');
+const logger = require('../utils/logger');
 
 let resendClient = null;
 
@@ -7,7 +8,7 @@ function getClient() {
     if (!resendClient) {
         const apiKey = process.env.RESEND_API_KEY;
         if (!apiKey) {
-            console.warn('RESEND_API_KEY not set — emails will not be sent');
+            logger.warn('RESEND_API_KEY not set — emails will not be sent');
             return null;
         }
         resendClient = new Resend(apiKey);
@@ -26,7 +27,7 @@ function getFrontendUrl() {
 async function sendEmail(to, subject, html, text) {
     const client = getClient();
     if (!client) {
-        console.warn(`Email suppressed (no API key): ${subject} → ${to}`);
+        logger.warn('Email suppressed (no API key)', { subject, to });
         return { sent: false, reason: 'NO_API_KEY' };
     }
 
@@ -40,13 +41,14 @@ async function sendEmail(to, subject, html, text) {
         });
 
         if (result.error) {
-            console.error('Resend error:', result.error);
+            logger.error('Resend API error', { subject, to, error: result.error.message });
             return { sent: false, reason: result.error.message || 'SEND_FAILED' };
         }
 
+        logger.info('Email sent', { subject, to, id: result.data?.id });
         return { sent: true, id: result.data?.id };
     } catch (err) {
-        console.error('Email send failed:', err.message);
+        logger.error('Email send failed', { subject, to, error: err.message });
         return { sent: false, reason: err.message || 'SEND_FAILED' };
     }
 }
@@ -67,7 +69,25 @@ async function sendPasswordResetEmail(user, resetToken) {
     return sendEmail(user.email, subject, html, text);
 }
 
+async function sendOtpEmail(user, otp, type) {
+    const purpose = type === 'password_reset' ? 'password_reset'
+        : type === 'phone_verification' ? 'phone_verification'
+        : 'email_verification';
+
+    const subjectMap = {
+        email_verification: 'Verify Your SportsOS Email',
+        password_reset: 'Your SportsOS Password Reset Code',
+        phone_verification: 'Verify Your Phone Number',
+    };
+
+    const subject = subjectMap[type] || 'Your SportsOS Verification Code';
+    const html = otpTemplate(user.name, otp, purpose);
+    const text = plainTextOtp(user.name, otp, purpose);
+    return sendEmail(user.email, subject, html, text);
+}
+
 module.exports = {
     sendWelcomeEmail,
     sendPasswordResetEmail,
+    sendOtpEmail,
 };

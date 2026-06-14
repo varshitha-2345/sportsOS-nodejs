@@ -9,9 +9,9 @@ const publicLimiter = require('../middleware/publicLimiter');
 // GET /coaches — list with filtering + pagination
 router.get('/', publicLimiter, async (req, res) => {
     try {
-        const { sport, search, page, pageSize } = req.query;
+        const { sport, city, experienceYears, search, page, pageSize } = req.query;
         const result = await coachRepo.getCoachesFiltered({
-            sport, search,
+            sport, city, experienceYears, search,
             page: clampPage(page),
             pageSize: clampPageSize(pageSize),
         });

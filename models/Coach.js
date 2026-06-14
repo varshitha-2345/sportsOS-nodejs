@@ -31,6 +31,8 @@ const coachSchema = new mongoose.Schema({
         phone:          { type: String },
         email:          { type: String },
     },
+    bio:                { type: String },
+    achievements:       [{ type: String }],
     verificationStatus: { type: String, enum: ['unverified','pending','verified','rejected'], default: 'unverified' },
     rating: {
         average:        { type: Number, default: 0 },
