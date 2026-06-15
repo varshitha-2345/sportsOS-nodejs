@@ -2,74 +2,93 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const User = require('../models/User');
+const { ok, fail } = require('../utils/response');
+
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+function generateToken(user) {
+    return jwt.sign(
+        { id: user.id || user._id, name: user.name, email: user.email, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+    );
+}
+
+function safeUser(user) {
+    return { id: user.id || user._id, name: user.name, email: user.email, role: user.role };
+}
 
 // POST /auth/register
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
     try {
-        const { name, email, password, role } = req.body;
+        const { name, email, password, phone } = req.body;
 
         if (!name || !email || !password) {
-            return res.status(400).json({ message: 'name, email and password are required' });
+            return res.status(400).json(fail('VALIDATION_ERROR', 'name, email and password are required'));
         }
 
-        const existingUser = await User.findOne({ email });
+        if (password.length < 8) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Password must be at least 8 characters'));
+        }
+
+        const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
-            return res.status(409).json({ message: 'Email already registered' });
+            return res.status(409).json(fail('CONFLICT', 'Email already registered'));
         }
 
         // Hash password before saving
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // Always default to athlete — ignore role from request body
         const user = await User.create({
             name,
-            email,
+            email: email.toLowerCase(),
             password: hashedPassword,
-            role: role || 'user'
+            phone: phone || undefined,
+            role: 'athlete'
         });
 
-        res.status(201).json({
-            message: 'Registered successfully',
-            user: { id: user._id, name: user.name, email: user.email, role: user.role }
-        });
+        const token = generateToken(user);
+
+        res.status(201).json(ok({ token, user: safeUser(user) }));
     } catch (err) {
-        res.status(500).json({ message: err.message });
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
 // POST /auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
     try {
         const { email, password } = req.body;
 
         if (!email || !password) {
-            return res.status(400).json({ message: 'email and password are required' });
+            return res.status(400).json(fail('VALIDATION_ERROR', 'email and password are required'));
         }
 
-        const user = await User.findOne({ email });
+        const user = await User.findOne({ email: email.toLowerCase() });
         if (!user) {
-            return res.status(401).json({ message: 'Invalid email or password' });
+            return res.status(401).json(fail('INVALID_CREDENTIALS', 'Invalid email or password'));
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            return res.status(401).json({ message: 'Invalid email or password' });
+            return res.status(401).json(fail('INVALID_CREDENTIALS', 'Invalid email or password'));
         }
 
         // Generate JWT token
-        const token = jwt.sign(
-            { id: user._id, name: user.name, email: user.email, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: '7d' }
-        );
+        const token = generateToken(user);
 
-        res.json({
-            message: 'Login successful',
-            token,
-            user: { id: user._id, name: user.name, email: user.email, role: user.role }
-        });
+        res.json(ok({ token, user: safeUser(user) }));
     } catch (err) {
-        res.status(500).json({ message: err.message });
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 

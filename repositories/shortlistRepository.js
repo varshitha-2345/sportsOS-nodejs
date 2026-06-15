@@ -1,41 +1,24 @@
 const Shortlist = require('../models/Shortlist');
 
-// Get all shortlist
-const getAllShortlist = async () => {
-    return await Shortlist.find();
+const findByUser = async (userId) => {
+    return await Shortlist.find({ userId }).sort({ createdAt: -1 });
 };
 
-// Get shortlist item by ID
-const getShortlistById = async (id) => {
-    return await Shortlist.findById(id);
+const findDuplicate = async (userId, itemType, itemId) => {
+    return await Shortlist.findOne({ userId, itemType, itemId });
 };
 
-// Get shortlist by athleteId
-const getShortlistByAthlete = async (athleteId) => {
-    return await Shortlist.find({ athleteId });
-};
-
-// Check duplicate shortlist
-const findDuplicate = async (athleteId, academyId) => {
-    return await Shortlist.findOne({ athleteId, academyId });
-};
-
-// Create shortlist item
-const createShortlist = async (data) => {
-    const item = new Shortlist(data);
+const create = async (userId, itemType, itemId) => {
+    const item = new Shortlist({ userId, itemType, itemId });
     return await item.save();
 };
 
-// Delete shortlist item by ID
-const deleteShortlist = async (id) => {
+const remove = async (id) => {
     return await Shortlist.findByIdAndDelete(id);
 };
 
-module.exports = {
-    getAllShortlist,
-    getShortlistById,
-    getShortlistByAthlete,
-    findDuplicate,
-    createShortlist,
-    deleteShortlist
+const removeAllByUser = async (userId) => {
+    return await Shortlist.deleteMany({ userId });
 };
+
+module.exports = { findByUser, findDuplicate, create, remove, removeAllByUser };
