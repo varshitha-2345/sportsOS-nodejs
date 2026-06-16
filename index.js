@@ -5,7 +5,7 @@ process.on('unhandledRejection', (err) => {
 });require("dns").setServers(["8.8.8.8", "8.8.4.4"]);
 require("dotenv").config();
 
-const Sentry = require('@sentry/node');
+//const Sentry = require('@sentry/node');
 
 const requiredEnv = ['MONGO_URI', 'JWT_SECRET', 'JWT_REFRESH_SECRET'];
 for (const key of requiredEnv) {
@@ -16,14 +16,14 @@ for (const key of requiredEnv) {
 }
 
 // Initialize Sentry before anything else
-if (process.env.SENTRY_DSN) {
+/*if (process.env.SENTRY_DSN) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || 'development',
     release: process.env.npm_package_version || '1.0.0',
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
   });
-}
+}*/
 
 const express = require('express');
 const cors = require('cors');
@@ -103,9 +103,9 @@ async function start() {
   app.use(express.json({ limit: '100kb' }));
 
   // Sentry request handler
-  if (process.env.SENTRY_DSN) {
+  /*if (process.env.SENTRY_DSN) {
     app.use(Sentry.Handlers.requestHandler());
-  }
+  }*/
 
   app.get('/', (req, res) => res.send('Sports OS API is Running!'));
 
@@ -119,14 +119,14 @@ async function start() {
   app.use('/admin',     require('./controllers/adminController'));
 
   // Sentry error handler
-  if (process.env.SENTRY_DSN) {
+  /*if (process.env.SENTRY_DSN) {
     app.use(Sentry.Handlers.errorHandler());
   }
 
   app.listen(PORT, () => {
     logger.info('server.started', { port: PORT, environment: process.env.NODE_ENV || 'development' });
   });
-}
+}*/
 
 // Graceful shutdown
 process.on('unhandledRejection', (reason) => {
