@@ -32,7 +32,7 @@ const registerLimiter = rateLimit({
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many registration attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.ip,
+   keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
 // General auth limiter: 20 per 15 min (me, onboarding, etc.)
@@ -51,7 +51,7 @@ const forgotPasswordLimiter = rateLimit({
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many password reset requests. Please try again in an hour.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.ip,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
 // Reset password limiter: 10 per hour per IP
@@ -61,7 +61,7 @@ const resetPasswordLimiter = rateLimit({
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many password reset attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => ipKeyGenerator(req.ip),,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
 // Refresh token limiter: 20 per 15 min per IP (handles token rotation for legitimate clients)
@@ -71,7 +71,7 @@ const refreshLimiter = rateLimit({
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many token refresh attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.ip,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
 // OTP limiter: 5 per 15 min per IP (brute force protection)
@@ -81,8 +81,7 @@ const otpLimiter = rateLimit({
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many verification attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.ip,
-});
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
 
 // Resend OTP limiter: 3 per 15 min per IP
 const resendOtpLimiter = rateLimit({
@@ -91,7 +90,7 @@ const resendOtpLimiter = rateLimit({
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many resend requests. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.ip,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
 // ─── Token Helpers ───────────────────────────────────────────
