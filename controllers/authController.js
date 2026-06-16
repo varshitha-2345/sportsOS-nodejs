@@ -22,7 +22,7 @@ const loginLimiter = rateLimit({
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many login attempts. Please try again in 15 minutes.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.ip,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
 // Register limiter: 3 accounts per hour per IP (spam prevention)
@@ -82,6 +82,7 @@ const otpLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => ipKeyGenerator(req.ip),
+});
 
 // Resend OTP limiter: 3 per 15 min per IP
 const resendOtpLimiter = rateLimit({
