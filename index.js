@@ -1,3 +1,19 @@
+process.on('unhandledRejection', (err) => {
+    console.error('==============================');
+    console.error('UNHANDLED REJECTION DETECTED');
+    console.error('==============================');
+
+    console.error('Error object:');
+    console.error(err);
+
+    console.error('Stack trace:');
+    console.error(err?.stack);
+
+    console.error('Error name:', err?.name);
+    console.error('Error message:', err?.message);
+
+    process.exit(1);
+});
 require("dns").setServers(["8.8.8.8", "8.8.4.4"]);
 require("dotenv").config();
 
