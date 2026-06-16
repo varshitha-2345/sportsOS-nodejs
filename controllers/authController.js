@@ -1,3 +1,4 @@
+const { ipKeyGenerator } = require('express-rate-limit');
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
@@ -60,7 +61,7 @@ const resetPasswordLimiter = rateLimit({
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many password reset attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => req.ip,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),,
 });
 
 // Refresh token limiter: 20 per 15 min per IP (handles token rotation for legitimate clients)
