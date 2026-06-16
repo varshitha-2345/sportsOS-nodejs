@@ -121,12 +121,12 @@ async function start() {
   // Sentry error handler
   /*if (process.env.SENTRY_DSN) {
     app.use(Sentry.Handlers.errorHandler());
-  }
+  }*/
 
   app.listen(PORT, () => {
     logger.info('server.started', { port: PORT, environment: process.env.NODE_ENV || 'development' });
   });
-}*/
+}
 
 // Graceful shutdown
 process.on('unhandledRejection', (reason) => {
