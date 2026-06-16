@@ -1,4 +1,8 @@
-require("dns").setServers(["8.8.8.8", "8.8.4.4"]);
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED REJECTION');
+  console.error(err);
+  console.error(err.stack);
+});require("dns").setServers(["8.8.8.8", "8.8.4.4"]);
 require("dotenv").config();
 
 const Sentry = require('@sentry/node');
