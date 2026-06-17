@@ -1,4 +1,3 @@
-
 process.on('unhandledRejection', (err) => {
   console.error('UNHANDLED REJECTION');
   console.error(err);
@@ -6,9 +5,7 @@ process.on('unhandledRejection', (err) => {
 });
 require("dns").setServers(["8.8.8.8", "8.8.4.4"]);
 require("dotenv").config();
-
 // Sentry disabled
-
 const requiredEnv = ['MONGO_URI', 'JWT_SECRET', 'JWT_REFRESH_SECRET'];
 for (const key of requiredEnv) {
   if (!process.env[key]) {
@@ -16,9 +13,7 @@ for (const key of requiredEnv) {
     process.exit(1);
   }
 }
-
 // Sentry disabled
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -30,33 +25,30 @@ const requestTimeout = require('./middleware/requestTimeout');
 const logger = require('./utils/logger');
 const app = express();
 
-const PORT = process.env.PORT || 3000;
+// Trust Render's reverse proxy so req.ip and X-Forwarded-For are handled correctly
+app.set('trust proxy', 1);
 
+const PORT = process.env.PORT || 3000;
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
-
 // In production, ALLOWED_ORIGINS must be set to prevent open CORS
 if (process.env.NODE_ENV === 'production' && ALLOWED_ORIGINS.length === 0) {
   console.error('CRITICAL: ALLOWED_ORIGINS must be set in production. Refusing to start with open CORS.');
   process.exit(1);
 }
-
 const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
-
     if (ALLOWED_ORIGINS.length === 0) {
       // Development: allow all origins
       return callback(null, true);
     }
-
     if (ALLOWED_ORIGINS.includes(origin)) {
       return callback(null, true);
     }
-
     callback(new Error(`Origin ${origin} not allowed by CORS`));
   },
   credentials: true,
@@ -64,13 +56,10 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   maxAge: 86400, // 24 hours preflight cache
 };
-
 async function start() {
   await connectDB();
-
   // Request ID — must be first middleware
   app.use(requestIdMiddleware);
-
   // Request logging middleware
   app.use((req, res, next) => {
     const start = Date.now();
@@ -86,7 +75,6 @@ async function start() {
     });
     next();
   });
-
   app.use(helmet({
     crossOriginResourcePolicy: false,
   }));
@@ -95,11 +83,8 @@ async function start() {
   app.use(requestTimeout(30000));
   app.use(cors(corsOptions));
   app.use(express.json({ limit: '100kb' }));
-
   // Sentry disabled
-
   app.get('/', (req, res) => res.send('Sports OS API is Running!'));
-
   app.use('/health', require('./controllers/healthController'));
   app.use('/auth',      require('./controllers/authController'));
   app.use('/athletes',  require('./controllers/athleteController'));
@@ -108,22 +93,17 @@ async function start() {
   app.use('/shortlist', require('./controllers/shortlistController'));
   app.use('/enquiries', require('./controllers/enquiryController'));
   app.use('/admin',     require('./controllers/adminController'));
-
   // Sentry disabled
-
   app.listen(PORT, () => {
     logger.info('server.started', { port: PORT, environment: process.env.NODE_ENV || 'development' });
   });
 }
-
 // Graceful shutdown
 process.on('unhandledRejection', (reason) => {
   logger.error('unhandledRejection', { reason: String(reason) });
 });
-
 process.on('uncaughtException', (err) => {
   logger.error('uncaughtException', { message: err.message, stack: err.stack });
   process.exit(1);
 });
-
 start();
