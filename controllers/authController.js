@@ -186,6 +186,14 @@ router.post('/register', registerLimiter, async (req, res) => {
     try {
         const { name, email, password, phone } = req.body;
 
+        logger.info('register.received', {
+            hasName: !!name,
+            hasEmail: !!email,
+            hasPassword: !!password,
+            hasPhone: !!phone,
+            bodyKeys: req.body ? Object.keys(req.body) : 'req.body undefined',
+        });
+
         if (!name || !email || !password) {
             return res.status(400).json(fail('VALIDATION_ERROR', 'name, email and password are required'));
         }
@@ -202,7 +210,15 @@ router.post('/register', registerLimiter, async (req, res) => {
         const normalizedEmail = email.toLowerCase();
         const existingUser = await User.findOne({ email: normalizedEmail });
         if (existingUser) {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'name, email and password are required'));
+            logger.info('register.duplicate_email', {
+                email: normalizedEmail,
+            });
+            return res.status(409).json(
+                fail(
+                    'VALIDATION_ERROR',
+                    'An account with this email already exists'
+                )
+            );
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
