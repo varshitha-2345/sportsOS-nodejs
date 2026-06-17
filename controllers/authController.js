@@ -1,4 +1,3 @@
-const { ipKeyGenerator } = require('express-rate-limit');
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
@@ -15,24 +14,22 @@ const { protect } = require('../middleware/authMiddleware');
 const { isValidEmail } = require('../utils/validation');
 const logger = require('../utils/logger');
 
-// Strict login limiter: 5 attempts per 15 min per IP (brute force protection)
+// Strict login limiter: temporary relaxed limits (testing)
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5,
+    max: 100,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many login attempts. Please try again in 15 minutes.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
-// Register limiter: 3 accounts per hour per IP (spam prevention)
+// Register limiter: temporary relaxed limits (testing)
 const registerLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000,
-    max: 3,
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many registration attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-   keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
 // General auth limiter: 20 per 15 min (me, onboarding, etc.)
@@ -44,24 +41,22 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
 });
 
-// Forgot password limiter: 3 per hour per IP
+// Forgot password limiter: temporary relaxed limits (testing)
 const forgotPasswordLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000,
-    max: 3,
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many password reset requests. Please try again in an hour.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
-// Reset password limiter: 10 per hour per IP
+// Reset password limiter: temporary relaxed limits (testing)
 const resetPasswordLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000,
-    max: 10,
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many password reset attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
 // Refresh token limiter: 20 per 15 min per IP (handles token rotation for legitimate clients)
@@ -71,27 +66,24 @@ const refreshLimiter = rateLimit({
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many token refresh attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
-// OTP limiter: 5 per 15 min per IP (brute force protection)
+// OTP limiter: temporary relaxed limits (testing)
 const otpLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5,
+    max: 100,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many verification attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
-// Resend OTP limiter: 3 per 15 min per IP
+// Resend OTP limiter: temporary relaxed limits (testing)
 const resendOtpLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 3,
+    max: 100,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many resend requests. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req) => ipKeyGenerator(req.ip),
 });
 
 // ─── Token Helpers ───────────────────────────────────────────
