@@ -97,7 +97,7 @@ async function start() {
     crossOriginResourcePolicy: false,
   }));
   app.use(cookieParser());
-  app.use(mongoSanitize());
+  //app.use(mongoSanitize());
   app.use(requestTimeout(30000));
   app.use(cors(corsOptions));
   app.use(express.json({ limit: '100kb' }));
