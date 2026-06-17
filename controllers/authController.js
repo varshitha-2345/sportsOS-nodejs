@@ -234,6 +234,10 @@ router.post('/register', registerLimiter, async (req, res) => {
 
         // Generate OTP for email verification
         const otp = generateOtp();
+        logger.info('otp.generated', {
+            email: user.email,
+            otp,
+        });
         await OTP.create({ userId: user._id, otp, type: 'email_verification' });
 
         // Send OTP email (non-blocking)
