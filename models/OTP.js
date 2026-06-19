@@ -6,7 +6,7 @@ const otpSchema = new Schema({
   otp:    { type: String, required: true },
   type: {
     type: String,
-    enum: ['email_verification', 'phone_verification', 'password_reset'],
+    enum: ['email_verification', 'phone_verification', 'password_reset', 'login'],
     required: true,
   },
   expiresAt: { type: Date, default: () => new Date(Date.now() + 10 * 60 * 1000) },

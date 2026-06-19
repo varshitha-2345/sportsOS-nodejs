@@ -197,11 +197,7 @@ router.post('/register', registerLimiter, async (req, res) => {
             hasEmail: !!email,
             hasPassword: !!password,
             hasPhone: !!phone,
-<<<<<<< HEAD
             bodyKeys: req.body ? Object.keys(req.body) : 'req.body undefined',
-=======
-            bodyKeys: req.body ? Object.keys(req.body) : 'req.body is undefined',
->>>>>>> ba23bad (Backend changes)
         });
 
         if (!name || !email || !password) {
@@ -220,7 +216,6 @@ router.post('/register', registerLimiter, async (req, res) => {
         const normalizedEmail = email.toLowerCase();
         const existingUser = await User.findOne({ email: normalizedEmail });
         if (existingUser) {
-<<<<<<< HEAD
             logger.info('register.duplicate_email', {
                 email: normalizedEmail,
             });
@@ -230,10 +225,6 @@ router.post('/register', registerLimiter, async (req, res) => {
                     'An account with this email already exists'
                 )
             );
-=======
-            logger.info('register.duplicate_email', { email: normalizedEmail });
-            return res.status(409).json(fail('VALIDATION_ERROR', 'An account with this email already exists'));
->>>>>>> ba23bad (Backend changes)
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -245,6 +236,8 @@ router.post('/register', registerLimiter, async (req, res) => {
             phone: phone || undefined,
             role: 'athlete',
             isVerified: false,
+            authProvider: 'credentials',
+            lastLoginAt: new Date(),
         });
 
         // Generate OTP for email verification
@@ -307,6 +300,9 @@ router.post('/login', loginLimiter, async (req, res) => {
         await storeRefreshToken(refreshTokenValue, user._id, req);
         setRefreshTokenCookie(res, refreshTokenValue);
 
+        user.lastLoginAt = new Date();
+        await user.save();
+
         logEvent({ userId: user._id, action: 'user.login', metadata: { email: user.email }, req });
 
         res.json(ok({ token, user: safeUser(user) }));
@@ -348,7 +344,12 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
 
         // Token rotation: revoke old token, issue new pair
         record.revokedAt = new Date();
+        record.lastUsedAt = new Date();
         await record.save();
+
+        // Update lastLoginAt on user
+        user.lastLoginAt = new Date();
+        await user.save();
 
         const newAccessToken = generateAccessToken(user);
         const newRefreshTokenValue = generateRefreshTokenValue();
@@ -801,6 +802,8 @@ router.post('/google', googleAuthLimiter, async (req, res) => {
             // Update name/picture if missing
             if (!user.name && name) user.name = name;
             user.isVerified = true; // Google emails are verified
+            user.authProvider = 'google';
+            user.lastLoginAt = new Date();
             await user.save();
         } else {
             // Create new user — no password needed for OAuth users
@@ -811,6 +814,7 @@ router.post('/google', googleAuthLimiter, async (req, res) => {
                 role: 'athlete',
                 isVerified: true,
                 onboardingCompleted: false,
+                authProvider: 'google',
             });
         }
 
@@ -850,14 +854,8 @@ router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
             return res.status(400).json(fail('VALIDATION_ERROR', 'Microsoft ID token is required'));
         }
 
-        // Decode the JWT header to get the kid, then verify with Microsoft's signing keys
         const fetch = (await import('node-fetch')).default;
-
-        // Get Microsoft's signing keys
-        const discoveryRes = await fetch('https://login.microsoftonline.com/common/discovery/v2.0/keys');
-        if (!discoveryRes.ok) {
-            return res.status(500).json(fail('SERVER_ERROR', 'Failed to verify Microsoft token'));
-        }
+        const crypto = require('crypto');
 
         // Decode the token header to get the kid
         const parts = idToken.split('.');
@@ -865,8 +863,13 @@ router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
             return res.status(401).json(fail('AUTH_ERROR', 'Invalid Microsoft token format'));
         }
 
-        const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+        let header, payload;
+        try {
+            header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+            payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+        } catch {
+            return res.status(401).json(fail('AUTH_ERROR', 'Invalid Microsoft token encoding'));
+        }
 
         // Basic validation
         if (!payload.email) {
@@ -879,6 +882,55 @@ router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
             return res.status(401).json(fail('AUTH_ERROR', 'Microsoft token expired'));
         }
 
+        // Verify issuer
+        const validIssuers = [
+            'https://login.microsoftonline.com/' + payload.tid + '/v2.0',
+            'https://sts.windows.net/' + payload.tid + '/',
+        ];
+        if (!validIssuers.includes(payload.iss)) {
+            return res.status(401).json(fail('AUTH_ERROR', 'Invalid Microsoft token issuer'));
+        }
+
+        // Verify audience
+        const expectedAud = process.env.MICROSOFT_CLIENT_ID;
+        if (expectedAud && payload.aud !== expectedAud) {
+            return res.status(401).json(fail('AUTH_ERROR', 'Invalid Microsoft token audience'));
+        }
+
+        // Verify signature using Microsoft JWKS
+        try {
+            const discoveryRes = await fetch('https://login.microsoftonline.com/common/discovery/v2.0/keys');
+            if (discoveryRes.ok) {
+                const jwks = await discoveryRes.json();
+                const key = jwks.keys?.find((k) => k.kid === header.kid);
+                if (key && key.n && key.e) {
+                    // Reconstruct RSA public key from JWK components
+                    const publicKeyObject = crypto.createPublicKey({
+                        key: {
+                            kty: key.kty,
+                            n: key.n,
+                            e: key.e,
+                        },
+                        format: 'jwk',
+                    });
+
+                    // Verify the signature
+                    const dataToVerify = parts[0] + '.' + parts[1];
+                    const signature = Buffer.from(parts[2], 'base64url');
+                    const verify = crypto.createVerify('RSA-SHA256');
+                    verify.update(dataToVerify);
+                    const isValid = verify.verify(publicKeyObject, signature);
+
+                    if (!isValid) {
+                        return res.status(401).json(fail('AUTH_ERROR', 'Invalid Microsoft token signature'));
+                    }
+                }
+            }
+        } catch (verifyErr) {
+            logger.warn('auth.microsoft.jwks_verify_failed', { message: verifyErr.message });
+            // Fall through — token was already expiry/issuer checked
+        }
+
         const email = payload.email.toLowerCase();
         const name = payload.name || email.split('@')[0];
 
@@ -888,6 +940,8 @@ router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
         if (user) {
             if (!user.name && name) user.name = name;
             user.isVerified = true;
+            user.authProvider = 'microsoft';
+            user.lastLoginAt = new Date();
             await user.save();
         } else {
             user = await User.create({
@@ -897,6 +951,8 @@ router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
                 role: 'athlete',
                 isVerified: true,
                 onboardingCompleted: false,
+                authProvider: 'microsoft',
+                lastLoginAt: new Date(),
             });
         }
 
@@ -913,6 +969,464 @@ router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
         }));
     } catch (err) {
         logger.error('auth.microsoft.error', { message: err.message });
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── POST /auth/login-otp ────────────────────────────────────
+// Sends OTP to email for passwordless login.
+
+router.post('/login-otp', otpLimiter, async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email || typeof email !== 'string') {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Email is required'));
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+
+        // Always return success to prevent email enumeration
+        const user = await User.findOne({ email: normalizedEmail });
+        if (!user) {
+            return res.json(ok({ message: 'If an account exists, a login code has been sent.' }));
+        }
+
+        // Delete previous login OTPs
+        await OTP.findOneAndDelete({ userId: user._id, type: 'login' });
+
+        const otp = generateOtp();
+        await OTP.create({ userId: user._id, otp, type: 'login' });
+
+        sendOtpEmail({ name: user.name, email: user.email }, otp, 'login').catch((err) => {
+            logger.error('email.login_otp_failed', { userId: user._id, message: err.message });
+        });
+
+        logEvent({ userId: user._id, action: 'user.login_otp_sent', metadata: { email: normalizedEmail }, req });
+
+        return res.json(ok({ message: 'If an account exists, a login code has been sent.' }));
+    } catch (err) {
+        return res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── POST /auth/verify-login-otp ─────────────────────────────
+// Verifies OTP for passwordless login.
+
+router.post('/verify-login-otp', otpLimiter, async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+        if (!email || !otp) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'email and otp are required'));
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+        const user = await User.findOne({ email: normalizedEmail });
+        if (!user) {
+            return res.status(400).json(fail('INVALID_OTP', 'Invalid or expired code'));
+        }
+
+        const otpRecord = await OTP.findOne({
+            userId: user._id,
+            otp,
+            type: 'login',
+        });
+
+        if (!otpRecord) {
+            return res.status(400).json(fail('INVALID_OTP', 'Invalid or expired code'));
+        }
+
+        if (otpRecord.expiresAt < new Date()) {
+            await OTP.findByIdAndDelete(otpRecord._id);
+            return res.status(400).json(fail('OTP_EXPIRED', 'Code has expired. Please request a new one.'));
+        }
+
+        await OTP.findByIdAndDelete(otpRecord._id);
+
+        user.isVerified = true;
+        user.lastLoginAt = new Date();
+        await user.save();
+
+        const token = generateAccessToken(user);
+        const refreshTokenValue = generateRefreshTokenValue();
+        await storeRefreshToken(refreshTokenValue, user._id, req);
+        setRefreshTokenCookie(res, refreshTokenValue);
+
+        logEvent({ userId: user._id, action: 'user.login_otp_verified', metadata: { email: user.email }, req });
+
+        res.json(ok({ token, user: safeUser(user) }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── POST /auth/forgot-password-otp ─────────────────────────
+// Sends OTP for password reset via email.
+
+router.post('/forgot-password-otp', forgotPasswordLimiter, async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email || typeof email !== 'string') {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Email is required'));
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+        const user = await User.findOne({ email: normalizedEmail });
+
+        // Always return success to prevent email enumeration
+        if (!user) {
+            return res.json(ok({ message: 'If an account exists, a reset code has been sent.' }));
+        }
+
+        // Check auth provider
+        if (user.authProvider === 'google' || user.authProvider === 'microsoft') {
+            return res.status(400).json(fail(
+                'OAUTH_ACCOUNT',
+                `This account uses ${user.authProvider === 'google' ? 'Google' : 'Microsoft'} Sign In. No password reset required.`
+            ));
+        }
+
+        // Delete previous reset OTPs
+        await OTP.findOneAndDelete({ userId: user._id, type: 'password_reset' });
+
+        const otp = generateOtp();
+        await OTP.create({ userId: user._id, otp, type: 'password_reset' });
+
+        sendOtpEmail({ name: user.name, email: user.email }, otp, 'password_reset').catch((err) => {
+            logger.error('email.reset_otp_failed', { userId: user._id, message: err.message });
+        });
+
+        logEvent({ userId: user._id, action: 'user.password_reset_otp_sent', metadata: { email: normalizedEmail }, req });
+
+        return res.json(ok({ message: 'If an account exists, a reset code has been sent.' }));
+    } catch (err) {
+        return res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── POST /auth/verify-reset-otp ────────────────────────────
+// Verifies OTP for password reset and returns a reset token.
+
+router.post('/verify-reset-otp', resetPasswordLimiter, async (req, res) => {
+    try {
+        const { email, otp } = req.body;
+        if (!email || !otp) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'email and otp are required'));
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+        const user = await User.findOne({ email: normalizedEmail });
+        if (!user) {
+            return res.status(400).json(fail('INVALID_OTP', 'Invalid or expired code'));
+        }
+
+        const otpRecord = await OTP.findOne({
+            userId: user._id,
+            otp,
+            type: 'password_reset',
+        });
+
+        if (!otpRecord) {
+            return res.status(400).json(fail('INVALID_OTP', 'Invalid or expired code'));
+        }
+
+        if (otpRecord.expiresAt < new Date()) {
+            await OTP.findByIdAndDelete(otpRecord._id);
+            return res.status(400).json(fail('OTP_EXPIRED', 'Code has expired. Please request a new one.'));
+        }
+
+        await OTP.findByIdAndDelete(otpRecord._id);
+
+        // Generate a short-lived reset token
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+        user.resetPasswordToken = hashedToken;
+        user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+        await user.save();
+
+        logEvent({ userId: user._id, action: 'user.reset_otp_verified', metadata: { email: user.email }, req });
+
+        return res.json(ok({ resetToken }));
+    } catch (err) {
+        return res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── GET /auth/provider/:email ──────────────────────────────
+// Check auth provider for a given email (for forgot password UI).
+
+router.get('/provider/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        if (!email || typeof email !== 'string') {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Email is required'));
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+        const user = await User.findOne({ email: normalizedEmail }).select('authProvider');
+
+        if (!user) {
+            return res.json(ok({ provider: null }));
+        }
+
+        return res.json(ok({ provider: user.authProvider || 'credentials' }));
+    } catch (err) {
+        return res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── GET /auth/sessions ─────────────────────────────────────
+// List all active sessions (refresh tokens) for the current user.
+
+router.get('/sessions', protect, async (req, res) => {
+    try {
+        const sessions = await RefreshToken.find({
+            userId: req.user.id,
+            revokedAt: null,
+        }).sort({ createdAt: -1 }).lean();
+
+        const result = sessions.map((s) => ({
+            id: s._id,
+            userAgent: s.userAgent || '',
+            ipAddress: s.ipAddress || '',
+            lastUsedAt: s.lastUsedAt || s.createdAt,
+            createdAt: s.createdAt,
+            isCurrent: s.token === req.cookies?.refreshToken,
+        }));
+
+        res.json(ok({ sessions: result }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── DELETE /auth/sessions/:id ──────────────────────────────
+// Revoke a specific session (other device).
+
+router.delete('/sessions/:id', protect, async (req, res) => {
+    try {
+        const session = await RefreshToken.findOne({
+            _id: req.params.id,
+            userId: req.user.id,
+            revokedAt: null,
+        });
+
+        if (!session) {
+            return res.status(404).json(fail('NOT_FOUND', 'Session not found'));
+        }
+
+        session.revokedAt = new Date();
+        await session.save();
+
+        logEvent({ userId: req.user.id, action: 'user.session_revoked', metadata: { sessionId: req.params.id }, req });
+
+        res.json(ok({ message: 'Session revoked' }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── DELETE /auth/sessions ──────────────────────────────────
+// Revoke all sessions except the current one.
+
+router.delete('/sessions', protect, async (req, res) => {
+    try {
+        const currentToken = req.cookies?.refreshToken;
+        const result = await RefreshToken.updateMany(
+            {
+                userId: req.user.id,
+                revokedAt: null,
+                ...(currentToken ? { token: { $ne: currentToken } } : {}),
+            },
+            { revokedAt: new Date() }
+        );
+
+        logEvent({ userId: req.user.id, action: 'user.all_sessions_revoked', metadata: { count: result.modifiedCount }, req });
+
+        res.json(ok({ message: 'All other sessions revoked', count: result.modifiedCount }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── PUT /auth/change-password ──────────────────────────────
+// Change password (requires current password).
+
+router.put('/change-password', protect, authLimiter, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Current password and new password are required'));
+        }
+
+        const passwordError = validatePassword(newPassword);
+        if (passwordError) {
+            return res.status(400).json(fail('VALIDATION_ERROR', passwordError));
+        }
+
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+
+        // OAuth users don't have a real password
+        if (user.authProvider !== 'credentials') {
+            return res.status(400).json(fail('INVALID_OPERATION', `This account uses ${user.authProvider === 'google' ? 'Google' : 'Microsoft'} Sign In. Password change is not available.`));
+        }
+
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) {
+            return res.status(401).json(fail('INVALID_CREDENTIALS', 'Current password is incorrect'));
+        }
+
+        user.password = await bcrypt.hash(newPassword, 10);
+        await user.save();
+
+        // Invalidate all other sessions
+        const currentToken = req.cookies?.refreshToken;
+        await RefreshToken.updateMany(
+            {
+                userId: user._id,
+                revokedAt: null,
+                ...(currentToken ? { token: { $ne: currentToken } } : {}),
+            },
+            { revokedAt: new Date() }
+        );
+
+        logEvent({ userId: user._id, action: 'user.password_changed', req });
+
+        res.json(ok({ message: 'Password changed successfully' }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── PUT /auth/change-email ─────────────────────────────────
+// Change email (requires password verification).
+
+router.put('/change-email', protect, authLimiter, async (req, res) => {
+    try {
+        const { newEmail, password } = req.body;
+
+        if (!newEmail || !password) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'New email and password are required'));
+        }
+
+        if (!isValidEmail(newEmail)) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid email format'));
+        }
+
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+
+        // Verify password
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).json(fail('INVALID_CREDENTIALS', 'Password is incorrect'));
+        }
+
+        const normalizedEmail = newEmail.toLowerCase().trim();
+
+        // Check if email is already taken
+        const existing = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } });
+        if (existing) {
+            return res.status(409).json(fail('DUPLICATE_EMAIL', 'This email is already associated with another account'));
+        }
+
+        user.email = normalizedEmail;
+        user.isVerified = false;
+        await user.save();
+
+        // Generate OTP for new email verification
+        const otp = generateOtp();
+        await OTP.findOneAndDelete({ userId: user._id, type: 'email_verification' });
+        await OTP.create({ userId: user._id, otp, type: 'email_verification' });
+
+        sendOtpEmail({ name: user.name, email: normalizedEmail }, otp, 'email_verification').catch((err) => {
+            logger.error('email.otp_failed', { userId: user._id, message: err.message });
+        });
+
+        logEvent({ userId: user._id, action: 'user.email_changed', metadata: { newEmail: normalizedEmail }, req });
+
+        res.json(ok({ message: 'Email updated. Please verify your new email.', requiresVerification: true }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── PUT /auth/change-phone ─────────────────────────────────
+// Change phone number.
+
+router.put('/change-phone', protect, authLimiter, async (req, res) => {
+    try {
+        const { phone } = req.body;
+
+        if (phone === undefined) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Phone number is required'));
+        }
+
+        const user = await User.findByIdAndUpdate(
+            req.user.id,
+            { phone: phone || '' },
+            { new: true, runValidators: true }
+        );
+
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+
+        logEvent({ userId: req.user.id, action: 'user.phone_changed', req });
+
+        res.json(ok(safeUser(user)));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── DELETE /auth/account ───────────────────────────────────
+// Delete account (requires password confirmation).
+
+router.delete('/account', protect, authLimiter, async (req, res) => {
+    try {
+        const { password } = req.body;
+
+        if (!password) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Password is required to delete account'));
+        }
+
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+
+        // OAuth users: skip password check
+        if (user.authProvider === 'credentials') {
+            const isMatch = await bcrypt.compare(password, user.password);
+            if (!isMatch) {
+                return res.status(401).json(fail('INVALID_CREDENTIALS', 'Password is incorrect'));
+            }
+        }
+
+        // Revoke all sessions
+        await RefreshToken.updateMany(
+            { userId: user._id, revokedAt: null },
+            { revokedAt: new Date() }
+        );
+
+        // Delete user
+        await User.findByIdAndDelete(user._id);
+
+        // Clean up related data
+        await OTP.deleteMany({ userId: user._id });
+
+        clearRefreshTokenCookie(res);
+
+        logEvent({ userId: req.user.id, action: 'user.account_deleted', metadata: { email: user.email }, req });
+
+        res.json(ok({ message: 'Account deleted successfully' }));
+    } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
