@@ -90,8 +90,10 @@ async function start() {
   app.use('/athletes',  require('./controllers/athleteController'));
   app.use('/academies', require('./controllers/academyController'));
   app.use('/coaches',   require('./controllers/coachController'));
+  app.use('/sports',    require('./controllers/sportsController'));
   app.use('/shortlist', require('./controllers/shortlistController'));
   app.use('/enquiries', require('./controllers/enquiryController'));
+  app.use('/reviews',   require('./controllers/reviewController'));
   app.use('/admin',     require('./controllers/adminController'));
   // Sentry disabled
   app.listen(PORT, () => {

@@ -169,8 +169,14 @@ function safeUser(user) {
         skillLevel: user.skillLevel || null,
         goals: user.goals || '',
         location: user.location || '',
+        avatar: user.avatar || null,
+        authProvider: user.authProvider || 'credentials',
+        lastLoginAt: user.lastLoginAt || null,
+        preferences: user.preferences || {},
+        consent: user.consent || { analytics: false, marketing: false, whatsapp: false },
+        themePreference: user.themePreference || 'system',
         children: (user.children || []).map(c => ({
-            id: c._id?.toString?.() || c.id,
+            id: c._id?.toString?.() || c.id || '',
             name: c.name,
             age: c.age,
             gender: c.gender || null,
@@ -191,7 +197,11 @@ router.post('/register', registerLimiter, async (req, res) => {
             hasEmail: !!email,
             hasPassword: !!password,
             hasPhone: !!phone,
+<<<<<<< HEAD
             bodyKeys: req.body ? Object.keys(req.body) : 'req.body undefined',
+=======
+            bodyKeys: req.body ? Object.keys(req.body) : 'req.body is undefined',
+>>>>>>> ba23bad (Backend changes)
         });
 
         if (!name || !email || !password) {
@@ -210,6 +220,7 @@ router.post('/register', registerLimiter, async (req, res) => {
         const normalizedEmail = email.toLowerCase();
         const existingUser = await User.findOne({ email: normalizedEmail });
         if (existingUser) {
+<<<<<<< HEAD
             logger.info('register.duplicate_email', {
                 email: normalizedEmail,
             });
@@ -219,6 +230,10 @@ router.post('/register', registerLimiter, async (req, res) => {
                     'An account with this email already exists'
                 )
             );
+=======
+            logger.info('register.duplicate_email', { email: normalizedEmail });
+            return res.status(409).json(fail('VALIDATION_ERROR', 'An account with this email already exists'));
+>>>>>>> ba23bad (Backend changes)
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -738,6 +753,167 @@ router.post('/reset-password', resetPasswordLimiter, async (req, res) => {
         return res.json(ok({ message: 'Password reset successful. Please login with your new password.' }));
     } catch (err) {
         return res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── POST /auth/google ──────────────────────────────────────
+// Verifies Google ID token, creates user if not exists, returns JWT.
+
+const googleAuthLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many requests.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+router.post('/google', googleAuthLimiter, async (req, res) => {
+    try {
+        const { idToken } = req.body;
+        if (!idToken) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Google ID token is required'));
+        }
+
+        // Verify the ID token with Google's tokeninfo endpoint
+        const fetch = (await import('node-fetch')).default;
+        const googleRes = await fetch(
+            `https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`
+        );
+
+        if (!googleRes.ok) {
+            return res.status(401).json(fail('AUTH_ERROR', 'Invalid Google token'));
+        }
+
+        const googleUser = await googleRes.json();
+
+        if (!googleUser.email || !googleUser.email_verified) {
+            return res.status(401).json(fail('AUTH_ERROR', 'Google account email not verified'));
+        }
+
+        const email = googleUser.email.toLowerCase();
+        const name = googleUser.name || email.split('@')[0];
+        const picture = googleUser.picture || null;
+
+        // Find or create user
+        let user = await User.findOne({ email });
+
+        if (user) {
+            // Update name/picture if missing
+            if (!user.name && name) user.name = name;
+            user.isVerified = true; // Google emails are verified
+            await user.save();
+        } else {
+            // Create new user — no password needed for OAuth users
+            user = await User.create({
+                name,
+                email,
+                password: crypto.randomBytes(32).toString('hex'), // random password, won't be used
+                role: 'athlete',
+                isVerified: true,
+                onboardingCompleted: false,
+            });
+        }
+
+        // Generate tokens
+        const token = generateAccessToken(user);
+        const refreshTokenValue = generateRefreshTokenValue();
+        await storeRefreshToken(refreshTokenValue, user._id, req);
+        setRefreshTokenCookie(res, refreshTokenValue);
+
+        logEvent({ userId: user._id, action: 'user.social_login', metadata: { provider: 'google' }, req });
+
+        res.json(ok({
+            token,
+            user: safeUser(user),
+        }));
+    } catch (err) {
+        logger.error('auth.google.error', { message: err.message });
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── POST /auth/microsoft ───────────────────────────────────
+// Verifies Microsoft ID token, creates user if not exists, returns JWT.
+
+const microsoftAuthLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many requests.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
+    try {
+        const { idToken } = req.body;
+        if (!idToken) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Microsoft ID token is required'));
+        }
+
+        // Decode the JWT header to get the kid, then verify with Microsoft's signing keys
+        const fetch = (await import('node-fetch')).default;
+
+        // Get Microsoft's signing keys
+        const discoveryRes = await fetch('https://login.microsoftonline.com/common/discovery/v2.0/keys');
+        if (!discoveryRes.ok) {
+            return res.status(500).json(fail('SERVER_ERROR', 'Failed to verify Microsoft token'));
+        }
+
+        // Decode the token header to get the kid
+        const parts = idToken.split('.');
+        if (parts.length !== 3) {
+            return res.status(401).json(fail('AUTH_ERROR', 'Invalid Microsoft token format'));
+        }
+
+        const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
+
+        // Basic validation
+        if (!payload.email) {
+            return res.status(401).json(fail('AUTH_ERROR', 'Microsoft token missing email'));
+        }
+
+        // Verify token hasn't expired
+        const now = Math.floor(Date.now() / 1000);
+        if (payload.exp && payload.exp < now) {
+            return res.status(401).json(fail('AUTH_ERROR', 'Microsoft token expired'));
+        }
+
+        const email = payload.email.toLowerCase();
+        const name = payload.name || email.split('@')[0];
+
+        // Find or create user
+        let user = await User.findOne({ email });
+
+        if (user) {
+            if (!user.name && name) user.name = name;
+            user.isVerified = true;
+            await user.save();
+        } else {
+            user = await User.create({
+                name,
+                email,
+                password: crypto.randomBytes(32).toString('hex'),
+                role: 'athlete',
+                isVerified: true,
+                onboardingCompleted: false,
+            });
+        }
+
+        const token = generateAccessToken(user);
+        const refreshTokenValue = generateRefreshTokenValue();
+        await storeRefreshToken(refreshTokenValue, user._id, req);
+        setRefreshTokenCookie(res, refreshTokenValue);
+
+        logEvent({ userId: user._id, action: 'user.social_login', metadata: { provider: 'microsoft' }, req });
+
+        res.json(ok({
+            token,
+            user: safeUser(user),
+        }));
+    } catch (err) {
+        logger.error('auth.microsoft.error', { message: err.message });
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 

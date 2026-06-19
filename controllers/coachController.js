@@ -106,7 +106,7 @@ function validateCoachUpdate(body) {
         if (isNaN(r) || r < 0 || r > 5) errors.push('rating must be a number between 0 and 5');
     }
     if (body.status !== undefined) {
-        if (!['active', 'inactive', 'pending'].includes(body.status)) errors.push('status must be active, inactive, or pending');
+        if (!['draft', 'published', 'suspended'].includes(body.status)) errors.push('status must be draft, published, or suspended');
     }
     return errors;
 }
