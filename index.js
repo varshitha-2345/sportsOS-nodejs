@@ -3,7 +3,6 @@ process.on('unhandledRejection', (err) => {
   console.error(err);
   console.error(err.stack);
 });
-require("dns").setServers(["8.8.8.8", "8.8.4.4"]);
 require("dotenv").config();
 // Sentry disabled
 const requiredEnv = ['MONGO_URI', 'JWT_SECRET', 'JWT_REFRESH_SECRET'];
@@ -57,7 +56,10 @@ const corsOptions = {
   maxAge: 86400, // 24 hours preflight cache
 };
 async function start() {
+  console.log("Connecting to MongoDB...");
+  console.log("MONGO_URI present:", !!process.env.MONGO_URI);
   await connectDB();
+  console.log("MongoDB connected");
   // Request ID — must be first middleware
   app.use(requestIdMiddleware);
   // Request logging middleware
@@ -97,6 +99,7 @@ async function start() {
   app.use('/admin',     require('./controllers/adminController'));
   // Sentry disabled
   app.listen(PORT, () => {
+    console.log("Server running on port", PORT);
     logger.info('server.started', { port: PORT, environment: process.env.NODE_ENV || 'development' });
   });
 }
