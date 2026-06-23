@@ -15,7 +15,7 @@ router.get('/', publicLimiter, async (req, res) => {
             status: status || 'published',
             category,
         });
-        res.json(ok({ items: sports, total: sports.length }));
+        res.json(ok({ items: sports, pagination: { page: 1, pageSize: sports.length, total: sports.length, hasMore: false } }));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
