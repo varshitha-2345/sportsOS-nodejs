@@ -5,6 +5,21 @@ const { protect, adminOnly } = require('../middleware/authMiddleware');
 const { ok, fail } = require('../utils/response');
 const publicLimiter = require('../middleware/publicLimiter');
 
+const DEFAULT_ICON  = '/images/sports/default-sport.svg';
+const DEFAULT_COVER = '/images/sports/default-sport-cover.jpg';
+
+function applyDefaults(sport) {
+  if (!sport) return sport;
+  const obj = sport.toObject ? sport.toObject() : { ...sport };
+  if (!obj.icon)      obj.icon      = DEFAULT_ICON;
+  if (!obj.coverImage) obj.coverImage = DEFAULT_COVER;
+  return obj;
+}
+
+function applyDefaultsToList(sports) {
+  return sports.map(applyDefaults);
+}
+
 // ── PUBLIC ROUTES ──────────────────────────────────────────────────
 
 // GET /sports — list all published sports
@@ -15,7 +30,7 @@ router.get('/', publicLimiter, async (req, res) => {
             status: status || 'published',
             category,
         });
-        res.json(ok({ items: sports, pagination: { page: 1, pageSize: sports.length, total: sports.length, hasMore: false } }));
+        res.json(ok({ items: applyDefaultsToList(sports), pagination: { page: 1, pageSize: sports.length, total: sports.length, hasMore: false } }));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
@@ -26,7 +41,7 @@ router.get('/by-slug/:slug', publicLimiter, async (req, res) => {
     try {
         const sport = await sportsService.getSportBySlug(req.params.slug);
         if (!sport) return res.status(404).json(fail('NOT_FOUND', 'Sport not found'));
-        res.json(ok(sport));
+        res.json(ok(applyDefaults(sport)));
     } catch (err) {
         if (err.message === 'Sport not found') {
             return res.status(404).json(fail('NOT_FOUND', 'Sport not found'));
@@ -40,7 +55,7 @@ router.get('/:slug', publicLimiter, async (req, res) => {
     try {
         const sport = await sportsService.getSportBySlug(req.params.slug);
         if (!sport) return res.status(404).json(fail('NOT_FOUND', 'Sport not found'));
-        res.json(ok(sport));
+        res.json(ok(applyDefaults(sport)));
     } catch (err) {
         if (err.message === 'Sport not found') {
             return res.status(404).json(fail('NOT_FOUND', 'Sport not found'));
@@ -55,7 +70,7 @@ router.get('/:slug', publicLimiter, async (req, res) => {
 router.post('/', protect, adminOnly, async (req, res) => {
     try {
         const sport = await sportsService.addSport(req.body);
-        res.status(201).json(ok(sport));
+        res.status(201).json(ok(applyDefaults(sport)));
     } catch (err) {
         if (err.code === 11000) {
             return res.status(409).json(fail('DUPLICATE', 'A sport with this name already exists'));
@@ -68,7 +83,7 @@ router.post('/', protect, adminOnly, async (req, res) => {
 router.put('/:id', protect, adminOnly, async (req, res) => {
     try {
         const sport = await sportsService.updateSport(req.params.id, req.body);
-        res.json(ok(sport));
+        res.json(ok(applyDefaults(sport)));
     } catch (err) {
         if (err.message === 'Sport not found') {
             return res.status(404).json(fail('NOT_FOUND', 'Sport not found'));
