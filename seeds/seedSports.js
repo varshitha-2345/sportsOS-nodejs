@@ -1246,14 +1246,20 @@ const sports = [
   },
 ];
 
-mongoose.connect(process.env.MONGO_URI).then(async () => {
-  console.log('MongoDB connected for seeding...');
-  await Sport.deleteMany({});
-  console.log('Cleared existing sports.');
-  const created = await Sport.insertMany(sports);
-  console.log(`Seeded ${created.length} sports successfully.`);
-  process.exit(0);
-}).catch((err) => {
-  console.error('Seeding failed:', err);
-  process.exit(1);
-});
+// Export for use by admin seed endpoint
+module.exports = sports;
+
+// Only run standalone seeding when executed directly
+if (require.main === module) {
+  mongoose.connect(process.env.MONGO_URI).then(async () => {
+    console.log('MongoDB connected for seeding...');
+    await Sport.deleteMany({});
+    console.log('Cleared existing sports.');
+    const created = await Sport.insertMany(sports);
+    console.log(`Seeded ${created.length} sports successfully.`);
+    process.exit(0);
+  }).catch((err) => {
+    console.error('Seeding failed:', err);
+    process.exit(1);
+  });
+}

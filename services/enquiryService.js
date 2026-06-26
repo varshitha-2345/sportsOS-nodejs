@@ -4,7 +4,7 @@
 //
 // Frontend alignment (types/domain/enquiry.ts):
 //   - EnquiryTargetType: 'academy' | 'coach'
-//   - EnquiryIntent: 'contact' | 'callback' | 'trial' | 'enrollment_interest'
+//   - EnquiryIntent: 'contact' | 'callback' | 'trial' | 'enrollment_interest' | 'whatsapp'
 //   - EnquiryStatus: 'submitted' | 'delivered' | 'failed' | 'bounced'
 //   - parentInfo: { name, email, phone }
 //   - childInfo?: { name, age }
@@ -19,7 +19,7 @@ const Enquiry = require('../models/Enquiry');
 const Lead    = require('../models/Lead');
 
 // ─── VALID ENUMS ─────────────────────────────────────────────
-const VALID_INTENTS   = ['contact', 'callback', 'trial', 'enrollment_interest'];
+const VALID_INTENTS   = ['contact', 'callback', 'trial', 'enrollment_interest', 'whatsapp'];
 const VALID_STATUSES  = ['submitted', 'delivered', 'failed', 'bounced'];
 
 // ─── CREATE ENQUIRY ──────────────────────────────────────────
@@ -31,7 +31,8 @@ const createEnquiry = async ({
   childId,
   targetType,    // 'academy' | 'coach'
   targetId,
-  intent,        // 'contact' | 'callback' | 'trial' | 'enrollment_interest'
+  targetName,    // display name of the academy/coach
+  intent,        // 'contact' | 'callback' | 'trial' | 'enrollment_interest' | 'whatsapp'
   parentInfo,    // { name, email, phone }
   childInfo,     // { name, age } — optional
   sportInterest,
@@ -48,6 +49,7 @@ const createEnquiry = async ({
     childId:        childId || null,
     targetType,
     targetId,
+    targetName:     targetName || '',
     intent,
     parentInfo,
     childInfo:      childInfo || null,
@@ -90,7 +92,6 @@ const createEnquiry = async ({
 // Matches app/(private)/profile/enquiries/page.tsx
 const getEnquiriesByUser = async (userId) => {
   return Enquiry.find({ userId })
-    .populate('targetId', 'name city slug') // partial populate — only name, city, slug
     .sort({ createdAt: -1 });
 };
 
