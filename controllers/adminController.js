@@ -7,6 +7,7 @@ const User = require('../models/User');
 const Enquiry = require('../models/Enquiry');
 const Sport = require('../models/Sport');
 const { ok, fail } = require('../utils/response');
+const { clampPage, clampPageSize } = require('../utils/validation');
 
 router.get('/dashboard/stats', protect, adminOnly, async (req, res) => {
   try {
@@ -38,8 +39,8 @@ router.get('/dashboard/stats', protect, adminOnly, async (req, res) => {
 
 router.get('/users', protect, adminOnly, async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    const page = clampPage(req.query.page);
+    const limit = clampPageSize(req.query.pageSize || req.query.limit);
     const skip = (page - 1) * limit;
 
     const [users, total] = await Promise.all([
@@ -49,7 +50,7 @@ router.get('/users', protect, adminOnly, async (req, res) => {
 
     res.json(ok({
       items: users,
-      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+      pagination: { page, pageSize: limit, total, hasMore: skip + users.length < total },
     }));
   } catch (err) {
     res.status(500).json(fail('SERVER_ERROR', 'Failed to load users'));

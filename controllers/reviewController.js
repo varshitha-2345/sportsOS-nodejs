@@ -7,6 +7,7 @@ const reviewRepo = require('../repositories/reviewRepository');
 const Academy = require('../models/Academy');
 const Coach = require('../models/Coach');
 const { ok, fail } = require('../utils/response');
+const { clampPageSize } = require('../utils/validation');
 
 const reviewLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
@@ -86,9 +87,11 @@ router.get('/:targetType/:targetId', async (req, res) => {
             return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid targetType'));
         }
 
+        const clampedLimit = clampPageSize(limit);
+
         const reviews = await reviewRepo.findByTarget(targetId, targetType, {
             sort,
-            limit: parseInt(limit),
+            limit: clampedLimit,
             skip: parseInt(skip),
         });
 

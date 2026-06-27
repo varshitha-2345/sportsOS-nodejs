@@ -49,7 +49,7 @@ const userSchema = new mongoose.Schema({
         },
         default: { analytics: false, marketing: false, whatsapp: false },
     },
-    themePreference: { type: String, enum: ['alpine-light', 'midnight-ice', 'system'], default: 'system' },
+    themePreference: { type: String, enum: ['alpine-light', 'midnight-ice', 'ember-orange', 'graphite-titanium', 'system'], default: 'system' },
     // Password reset fields
     resetPasswordToken:   { type: String },
     resetPasswordExpires: { type: Date },

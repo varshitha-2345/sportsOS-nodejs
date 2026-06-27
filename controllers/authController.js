@@ -176,13 +176,18 @@ function safeUser(user) {
         preferences: user.preferences || {},
         consent: user.consent || { analytics: false, marketing: false, whatsapp: false },
         themePreference: user.themePreference || 'system',
+        createdAt: user.createdAt || new Date(0).toISOString(),
+        updatedAt: user.updatedAt || new Date(0).toISOString(),
         children: (user.children || []).map(c => ({
             id: c._id?.toString?.() || c.id || '',
+            parentId: user.id || user._id,
             name: c.name,
             age: c.age,
             gender: c.gender || null,
             sportInterests: c.sportInterests || [],
             skillLevel: c.skillLevel || null,
+            createdAt: user.createdAt || new Date(0).toISOString(),
+            updatedAt: user.updatedAt || new Date(0).toISOString(),
         })),
     };
 }
@@ -624,7 +629,7 @@ function validateProfile(body) {
         }
     }
     if (body.themePreference !== undefined) {
-        const validThemes = ['alpine-light', 'midnight-ice', 'ember-orange', 'graphite-titanium', 'system'];
+        const validThemes = ['midnight-ice', 'ember-orange', 'graphite-titanium', 'alpine-light', 'system'];
         if (!validThemes.includes(body.themePreference)) {
             errors.push('themePreference must be a valid theme');
         }
@@ -1486,11 +1491,14 @@ router.get('/children', protect, async (req, res) => {
         }
         const children = (user.children || []).map(c => ({
             id: c._id?.toString?.() || c.id || '',
+            parentId: user.id || user._id,
             name: c.name,
             age: c.age,
             gender: c.gender || null,
             sportInterests: c.sportInterests || [],
             skillLevel: c.skillLevel || null,
+            createdAt: user.createdAt || new Date(0).toISOString(),
+            updatedAt: user.updatedAt || new Date(0).toISOString(),
         }));
         res.json(ok(children));
     } catch (err) {
@@ -1542,11 +1550,14 @@ router.post('/children', protect, authLimiter, async (req, res) => {
 
         res.json(ok({
             id: added._id?.toString?.() || '',
+            parentId: req.user.id,
             name: added.name,
             age: added.age,
             gender: added.gender || null,
             sportInterests: added.sportInterests || [],
             skillLevel: added.skillLevel || null,
+            createdAt: user.createdAt || new Date(0).toISOString(),
+            updatedAt: user.updatedAt || new Date(0).toISOString(),
         }));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
@@ -1608,11 +1619,14 @@ router.patch('/children/:childId', protect, authLimiter, async (req, res) => {
 
         res.json(ok({
             id: child._id?.toString?.() || '',
+            parentId: req.user.id,
             name: child.name,
             age: child.age,
             gender: child.gender || null,
             sportInterests: child.sportInterests || [],
             skillLevel: child.skillLevel || null,
+            createdAt: user.createdAt || new Date(0).toISOString(),
+            updatedAt: user.updatedAt || new Date(0).toISOString(),
         }));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
