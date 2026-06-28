@@ -162,6 +162,7 @@ function safeUser(user) {
         phone: user.phone || '',
         role: user.role,
         isVerified: !!user.isVerified,
+        phoneVerified: !!user.phoneVerified,
         onboardingCompleted: !!user.onboardingCompleted,
         age: user.age ?? null,
         gender: user.gender || null,
@@ -175,13 +176,18 @@ function safeUser(user) {
         preferences: user.preferences || {},
         consent: user.consent || { analytics: false, marketing: false, whatsapp: false },
         themePreference: user.themePreference || 'system',
+        createdAt: user.createdAt || new Date(0).toISOString(),
+        updatedAt: user.updatedAt || new Date(0).toISOString(),
         children: (user.children || []).map(c => ({
             id: c._id?.toString?.() || c.id || '',
+            parentId: user.id || user._id,
             name: c.name,
             age: c.age,
             gender: c.gender || null,
             sportInterests: c.sportInterests || [],
             skillLevel: c.skillLevel || null,
+            createdAt: user.createdAt || new Date(0).toISOString(),
+            updatedAt: user.updatedAt || new Date(0).toISOString(),
         })),
     };
 }
@@ -242,10 +248,6 @@ router.post('/register', registerLimiter, async (req, res) => {
 
         // Generate OTP for email verification
         const otp = generateOtp();
-        logger.info('otp.generated', {
-            email: user.email,
-            otp,
-        });
         await OTP.create({ userId: user._id, otp, type: 'email_verification' });
 
         // Send OTP email (non-blocking)
@@ -600,7 +602,7 @@ router.put('/onboarding', protect, authLimiter, async (req, res) => {
 
 // ─── Profile Update Helpers ──────────────────────────────────
 
-const PROFILE_ALLOWED_FIELDS = ['name', 'phone'];
+const PROFILE_ALLOWED_FIELDS = ['name', 'phone', 'preferences', 'consent', 'themePreference'];
 
 function validateProfile(body) {
     const errors = [];
@@ -616,6 +618,22 @@ function validateProfile(body) {
             errors.push('phone must be a string');
         }
     }
+    if (body.preferences !== undefined) {
+        if (typeof body.preferences !== 'object' || body.preferences === null) {
+            errors.push('preferences must be an object');
+        }
+    }
+    if (body.consent !== undefined) {
+        if (typeof body.consent !== 'object' || body.consent === null) {
+            errors.push('consent must be an object');
+        }
+    }
+    if (body.themePreference !== undefined) {
+        const validThemes = ['midnight-ice', 'ember-orange', 'graphite-titanium', 'alpine-light', 'system'];
+        if (!validThemes.includes(body.themePreference)) {
+            errors.push('themePreference must be a valid theme');
+        }
+    }
     return errors;
 }
 
@@ -626,7 +644,17 @@ router.patch('/profile', protect, authLimiter, async (req, res) => {
         const update = {};
         for (const field of PROFILE_ALLOWED_FIELDS) {
             if (req.body[field] !== undefined) {
-                update[field] = field === 'name' ? req.body[field].trim() : req.body[field];
+                if (field === 'name') {
+                    update[field] = req.body[field].trim();
+                } else if (field === 'preferences' || field === 'consent') {
+                    // Merge nested objects instead of replacing
+                    update['$set'] = update['$set'] || {};
+                    for (const [key, value] of Object.entries(req.body[field])) {
+                        update[`$set.${field}.${key}`] = value;
+                    }
+                } else {
+                    update[field] = req.body[field];
+                }
             }
         }
 
@@ -639,9 +667,19 @@ router.patch('/profile', protect, authLimiter, async (req, res) => {
             return res.status(400).json(fail('VALIDATION_ERROR', errors.join('; ')));
         }
 
+        // Use $set for nested objects to merge instead of replace
+        const updateOps = {};
+        if (update.$set) {
+            updateOps.$set = update.$set;
+            delete update.$set;
+        }
+        if (Object.keys(update).length > 0) {
+            updateOps.$set = { ...updateOps.$set, ...update };
+        }
+
         const user = await User.findByIdAndUpdate(
             req.user.id,
-            update,
+            Object.keys(updateOps).length > 0 ? updateOps : update,
             { new: true, runValidators: true }
         );
         if (!user) {
@@ -802,7 +840,11 @@ router.post('/google', googleAuthLimiter, async (req, res) => {
             // Update name/picture if missing
             if (!user.name && name) user.name = name;
             user.isVerified = true; // Google emails are verified
-            user.authProvider = 'google';
+            // Preserve existing authProvider if user already has one (e.g., 'credentials')
+            // Only set provider for new logins, don't overwrite existing provider
+            if (!user.authProvider || user.authProvider === 'credentials') {
+                user.authProvider = 'google';
+            }
             user.lastLoginAt = new Date();
             await user.save();
         } else {
@@ -891,44 +933,49 @@ router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
             return res.status(401).json(fail('AUTH_ERROR', 'Invalid Microsoft token issuer'));
         }
 
-        // Verify audience
+        // Verify audience (REQUIRED — reject if MICROSOFT_CLIENT_ID not configured)
         const expectedAud = process.env.MICROSOFT_CLIENT_ID;
-        if (expectedAud && payload.aud !== expectedAud) {
+        if (!expectedAud) {
+            logger.error('auth.microsoft.missing_client_id', { message: 'MICROSOFT_CLIENT_ID env var not set' });
+            return res.status(500).json(fail('SERVER_ERROR', 'Microsoft auth not configured'));
+        }
+        if (payload.aud !== expectedAud) {
             return res.status(401).json(fail('AUTH_ERROR', 'Invalid Microsoft token audience'));
         }
 
-        // Verify signature using Microsoft JWKS
+        // Verify signature using Microsoft JWKS (REQUIRED — do not fall through)
+        let signatureVerified = false;
         try {
             const discoveryRes = await fetch('https://login.microsoftonline.com/common/discovery/v2.0/keys');
-            if (discoveryRes.ok) {
-                const jwks = await discoveryRes.json();
-                const key = jwks.keys?.find((k) => k.kid === header.kid);
-                if (key && key.n && key.e) {
-                    // Reconstruct RSA public key from JWK components
-                    const publicKeyObject = crypto.createPublicKey({
-                        key: {
-                            kty: key.kty,
-                            n: key.n,
-                            e: key.e,
-                        },
-                        format: 'jwk',
-                    });
+            if (!discoveryRes.ok) {
+                logger.error('auth.microsoft.jwks_fetch_failed', { status: discoveryRes.status });
+                return res.status(401).json(fail('AUTH_ERROR', 'Unable to verify Microsoft token'));
+            }
+            const jwks = await discoveryRes.json();
+            const key = jwks.keys?.find((k) => k.kid === header.kid);
+            if (!key || !key.n || !key.e) {
+                return res.status(401).json(fail('AUTH_ERROR', 'Microsoft token signing key not found'));
+            }
 
-                    // Verify the signature
-                    const dataToVerify = parts[0] + '.' + parts[1];
-                    const signature = Buffer.from(parts[2], 'base64url');
-                    const verify = crypto.createVerify('RSA-SHA256');
-                    verify.update(dataToVerify);
-                    const isValid = verify.verify(publicKeyObject, signature);
+            // Reconstruct RSA public key from JWK components
+            const publicKeyObject = crypto.createPublicKey({
+                key: { kty: key.kty, n: key.n, e: key.e },
+                format: 'jwk',
+            });
 
-                    if (!isValid) {
-                        return res.status(401).json(fail('AUTH_ERROR', 'Invalid Microsoft token signature'));
-                    }
-                }
+            // Verify the signature
+            const dataToVerify = parts[0] + '.' + parts[1];
+            const signature = Buffer.from(parts[2], 'base64url');
+            const verify = crypto.createVerify('RSA-SHA256');
+            verify.update(dataToVerify);
+            signatureVerified = verify.verify(publicKeyObject, signature);
+
+            if (!signatureVerified) {
+                return res.status(401).json(fail('AUTH_ERROR', 'Invalid Microsoft token signature'));
             }
         } catch (verifyErr) {
-            logger.warn('auth.microsoft.jwks_verify_failed', { message: verifyErr.message });
-            // Fall through — token was already expiry/issuer checked
+            logger.error('auth.microsoft.jwks_verify_failed', { message: verifyErr.message });
+            return res.status(401).json(fail('AUTH_ERROR', 'Failed to verify Microsoft token signature'));
         }
 
         const email = payload.email.toLowerCase();
@@ -940,7 +987,10 @@ router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
         if (user) {
             if (!user.name && name) user.name = name;
             user.isVerified = true;
-            user.authProvider = 'microsoft';
+            // Preserve existing authProvider if user already has one (e.g., 'credentials')
+            if (!user.authProvider || user.authProvider === 'credentials') {
+                user.authProvider = 'microsoft';
+            }
             user.lastLoginAt = new Date();
             await user.save();
         } else {
@@ -1426,6 +1476,185 @@ router.delete('/account', protect, authLimiter, async (req, res) => {
         logEvent({ userId: req.user.id, action: 'user.account_deleted', metadata: { email: user.email }, req });
 
         res.json(ok({ message: 'Account deleted successfully' }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── GET /auth/children ───────────────────────────────────────
+
+router.get('/children', protect, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+        const children = (user.children || []).map(c => ({
+            id: c._id?.toString?.() || c.id || '',
+            parentId: user.id || user._id,
+            name: c.name,
+            age: c.age,
+            gender: c.gender || null,
+            sportInterests: c.sportInterests || [],
+            skillLevel: c.skillLevel || null,
+            createdAt: user.createdAt || new Date(0).toISOString(),
+            updatedAt: user.updatedAt || new Date(0).toISOString(),
+        }));
+        res.json(ok(children));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── POST /auth/children ──────────────────────────────────────
+
+const VALID_CHILD_GENDERS = ['male', 'female', 'other', 'prefer_not_to_say'];
+
+router.post('/children', protect, authLimiter, async (req, res) => {
+    try {
+        const { name, age, gender, sportInterests, skillLevel } = req.body;
+
+        if (!name || typeof name !== 'string' || name.trim().length < 1) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Child name is required'));
+        }
+        const parsedAge = Number(age);
+        if (isNaN(parsedAge) || parsedAge < 1 || parsedAge > 25) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Child age must be between 1 and 25'));
+        }
+        if (gender !== undefined && !VALID_CHILD_GENDERS.includes(gender)) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid gender value'));
+        }
+        if (skillLevel !== undefined && !VALID_SKILL_LEVELS.includes(skillLevel)) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid skill level'));
+        }
+        if (sportInterests !== undefined && !Array.isArray(sportInterests)) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'sportInterests must be an array'));
+        }
+
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+
+        user.children.push({
+            name: name.trim(),
+            age: parsedAge,
+            gender: gender || undefined,
+            sportInterests: sportInterests || [],
+            skillLevel: skillLevel || undefined,
+        });
+        await user.save();
+
+        const added = user.children[user.children.length - 1];
+        logEvent({ userId: req.user.id, action: 'user.child_added', metadata: { childName: name.trim() }, req });
+
+        res.json(ok({
+            id: added._id?.toString?.() || '',
+            parentId: req.user.id,
+            name: added.name,
+            age: added.age,
+            gender: added.gender || null,
+            sportInterests: added.sportInterests || [],
+            skillLevel: added.skillLevel || null,
+            createdAt: user.createdAt || new Date(0).toISOString(),
+            updatedAt: user.updatedAt || new Date(0).toISOString(),
+        }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── PATCH /auth/children/:childId ────────────────────────────
+
+router.patch('/children/:childId', protect, authLimiter, async (req, res) => {
+    try {
+        const { childId } = req.params;
+        const { name, age, gender, sportInterests, skillLevel } = req.body;
+
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+
+        const child = user.children.id(childId);
+        if (!child) {
+            return res.status(404).json(fail('NOT_FOUND', 'Child not found'));
+        }
+
+        if (name !== undefined) {
+            if (typeof name !== 'string' || name.trim().length < 1) {
+                return res.status(400).json(fail('VALIDATION_ERROR', 'Child name is required'));
+            }
+            child.name = name.trim();
+        }
+        if (age !== undefined) {
+            const parsedAge = Number(age);
+            if (isNaN(parsedAge) || parsedAge < 1 || parsedAge > 25) {
+                return res.status(400).json(fail('VALIDATION_ERROR', 'Child age must be between 1 and 25'));
+            }
+            child.age = parsedAge;
+        }
+        if (gender !== undefined) {
+            if (!VALID_CHILD_GENDERS.includes(gender)) {
+                return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid gender value'));
+            }
+            child.gender = gender;
+        }
+        if (sportInterests !== undefined) {
+            if (!Array.isArray(sportInterests)) {
+                return res.status(400).json(fail('VALIDATION_ERROR', 'sportInterests must be an array'));
+            }
+            child.sportInterests = sportInterests;
+        }
+        if (skillLevel !== undefined) {
+            if (!VALID_SKILL_LEVELS.includes(skillLevel)) {
+                return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid skill level'));
+            }
+            child.skillLevel = skillLevel;
+        }
+
+        await user.save();
+
+        logEvent({ userId: req.user.id, action: 'user.child_updated', metadata: { childId }, req });
+
+        res.json(ok({
+            id: child._id?.toString?.() || '',
+            parentId: req.user.id,
+            name: child.name,
+            age: child.age,
+            gender: child.gender || null,
+            sportInterests: child.sportInterests || [],
+            skillLevel: child.skillLevel || null,
+            createdAt: user.createdAt || new Date(0).toISOString(),
+            updatedAt: user.updatedAt || new Date(0).toISOString(),
+        }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
+// ─── DELETE /auth/children/:childId ───────────────────────────
+
+router.delete('/children/:childId', protect, authLimiter, async (req, res) => {
+    try {
+        const { childId } = req.params;
+
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+        }
+
+        const child = user.children.id(childId);
+        if (!child) {
+            return res.status(404).json(fail('NOT_FOUND', 'Child not found'));
+        }
+
+        child.deleteOne();
+        await user.save();
+
+        logEvent({ userId: req.user.id, action: 'user.child_removed', metadata: { childId }, req });
+
+        res.json(ok({ message: 'Child removed' }));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }

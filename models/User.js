@@ -18,6 +18,7 @@ const userSchema = new mongoose.Schema({
     lastLoginAt:  { type: Date },
     role:     { type: String, enum: ['athlete', 'parent', 'coach', 'academy_owner', 'admin'], default: 'athlete' },
     isVerified: { type: Boolean, default: false },
+    phoneVerified: { type: Boolean, default: false },
     onboardingCompleted: { type: Boolean, default: false },
     // Onboarding profile fields
     age:            { type: Number, min: 1, max: 120 },
@@ -31,6 +32,10 @@ const userSchema = new mongoose.Schema({
     preferences: {
         type: {
             favoriteSports: [{ type: String }],
+            city:           { type: String, default: '' },
+            radius:         { type: Number, default: 5 },
+            skillLevel:     { type: String, default: '' },
+            goals:          { type: String, default: '' },
             notifications:  { type: Boolean, default: true },
             language:       { type: String, default: 'en' },
         },
@@ -44,7 +49,7 @@ const userSchema = new mongoose.Schema({
         },
         default: { analytics: false, marketing: false, whatsapp: false },
     },
-    themePreference: { type: String, enum: ['alpine-light', 'midnight-ice', 'system'], default: 'system' },
+    themePreference: { type: String, enum: ['alpine-light', 'midnight-ice', 'ember-orange', 'graphite-titanium', 'system'], default: 'system' },
     // Password reset fields
     resetPasswordToken:   { type: String },
     resetPasswordExpires: { type: Date },

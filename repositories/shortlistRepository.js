@@ -4,6 +4,14 @@ const findByUser = async (userId) => {
     return await Shortlist.find({ userId }).sort({ createdAt: -1 });
 };
 
+const findById = async (id) => {
+    return await Shortlist.findById(id);
+};
+
+const findByUserAndItem = async (userId, itemType, itemId) => {
+    return await Shortlist.findOne({ userId, itemType, itemId });
+};
+
 const findDuplicate = async (userId, itemType, itemId) => {
     return await Shortlist.findOne({ userId, itemType, itemId });
 };
@@ -17,8 +25,27 @@ const remove = async (id) => {
     return await Shortlist.findByIdAndDelete(id);
 };
 
-const removeAllByUser = async (userId) => {
+const removeByUserAndItem = async (userId, itemType, itemId) => {
+    return await Shortlist.findOneAndDelete({ userId, itemType, itemId });
+};
+
+const clearByUser = async (userId) => {
     return await Shortlist.deleteMany({ userId });
 };
 
-module.exports = { findByUser, findDuplicate, create, remove, removeAllByUser };
+const existsForUser = async (userId, itemType, itemId) => {
+    const item = await Shortlist.findOne({ userId, itemType, itemId });
+    return !!item;
+};
+
+module.exports = {
+    findByUser,
+    findById,
+    findByUserAndItem,
+    findDuplicate,
+    create,
+    remove,
+    removeByUserAndItem,
+    clearByUser,
+    existsForUser,
+};

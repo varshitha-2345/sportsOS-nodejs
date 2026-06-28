@@ -1,9 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
+const mongoose = require('mongoose');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 const reviewRepo = require('../repositories/reviewRepository');
+const Academy = require('../models/Academy');
+const Coach = require('../models/Coach');
 const { ok, fail } = require('../utils/response');
+const { clampPageSize } = require('../utils/validation');
 
 const reviewLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
@@ -12,6 +16,17 @@ const reviewLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
 });
+
+// ─── Recalculate avgRating + reviewCount on the target document ──
+async function recalculateRating(targetId, targetType) {
+    const { averageRating, totalReviews } = await reviewRepo.getStats(targetId, targetType);
+    const update = { 'rating.average': averageRating, 'rating.count': totalReviews };
+    if (targetType === 'academy') {
+        await Academy.findByIdAndUpdate(targetId, update);
+    } else if (targetType === 'coach') {
+        await Coach.findByIdAndUpdate(targetId, update);
+    }
+}
 
 // POST /reviews — submit a review (auth required)
 router.post('/', protect, reviewLimiter, async (req, res) => {
@@ -51,6 +66,8 @@ router.post('/', protect, reviewLimiter, async (req, res) => {
             moderationStatus: 'approved',
         });
 
+        await recalculateRating(targetId, targetType);
+
         res.status(201).json(ok({ reviewId: review.id }));
     } catch (err) {
         if (err.code === 11000) {
@@ -70,9 +87,11 @@ router.get('/:targetType/:targetId', async (req, res) => {
             return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid targetType'));
         }
 
+        const clampedLimit = clampPageSize(limit);
+
         const reviews = await reviewRepo.findByTarget(targetId, targetType, {
             sort,
-            limit: parseInt(limit),
+            limit: clampedLimit,
             skip: parseInt(skip),
         });
 
@@ -111,7 +130,10 @@ router.put('/:id', protect, async (req, res) => {
             ...(title !== undefined && { title }),
             ...(text !== undefined && { text }),
             ...(photos && { photos }),
+            moderationStatus: 'approved',
         });
+
+        await recalculateRating(review.targetId, review.targetType);
 
         res.json(ok(updated));
     } catch (err) {
@@ -130,7 +152,13 @@ router.delete('/:id', protect, async (req, res) => {
             return res.status(403).json(fail('FORBIDDEN', 'Not authorized'));
         }
 
+        const targetType = review.targetType;
+        const targetId = review.targetId;
+
         await reviewRepo.deleteById(req.params.id);
+
+        await recalculateRating(targetId, targetType);
+
         res.json(ok({ deleted: true }));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));

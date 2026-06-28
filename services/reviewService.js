@@ -127,7 +127,7 @@ const calculateRating = async (targetId, targetType) => {
   const result = await Review.aggregate([
     {
       $match: {
-        targetId:          targetId.toString(),
+        targetId:          require('mongoose').Types.ObjectId.createFromHexString(targetId.toString()),
         targetType,
         moderationStatus: 'approved', // only count approved reviews
       },
@@ -138,13 +138,15 @@ const calculateRating = async (targetId, targetType) => {
   const avg   = result[0]?.avg   || 0;
   const count = result[0]?.count || 0;
 
+  const avgRounded = Math.round(avg * 10) / 10;
+
   if (targetType === 'academy') {
-    await Academy.findByIdAndUpdate(targetId, { avgRating: avg.toFixed(1), reviewCount: count });
+    await Academy.findByIdAndUpdate(targetId, { 'rating.average': avgRounded, 'rating.count': count });
   } else if (targetType === 'coach') {
-    await Coach.findByIdAndUpdate(targetId, { avgRating: avg.toFixed(1), reviewCount: count });
+    await Coach.findByIdAndUpdate(targetId, { 'rating.average': avgRounded, 'rating.count': count });
   }
 
-  return { avgRating: avg.toFixed(1), reviewCount: count };
+  return { avgRating: avgRounded, reviewCount: count };
 };
 
 module.exports = {

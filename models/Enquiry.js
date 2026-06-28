@@ -4,7 +4,8 @@ const enquirySchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     targetType: { type: String, enum: ['academy', 'coach'], required: true },
     targetId: { type: mongoose.Schema.Types.ObjectId, required: true },
-    intent: { type: String, enum: ['contact', 'callback', 'trial', 'enrollment_interest'], default: 'trial' },
+    targetName: { type: String },
+    intent: { type: String, enum: ['contact', 'callback', 'trial', 'enrollment_interest', 'whatsapp'], default: 'trial' },
     parentInfo: {
         name: { type: String, required: true },
         email: { type: String, required: true },

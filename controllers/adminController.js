@@ -5,6 +5,9 @@ const Academy = require('../models/Academy');
 const Coach = require('../models/Coach');
 const User = require('../models/User');
 const Enquiry = require('../models/Enquiry');
+const Sport = require('../models/Sport');
+const { ok, fail } = require('../utils/response');
+const { clampPage, clampPageSize } = require('../utils/validation');
 
 router.get('/dashboard/stats', protect, adminOnly, async (req, res) => {
   try {
@@ -22,25 +25,22 @@ router.get('/dashboard/stats', protect, adminOnly, async (req, res) => {
       Enquiry.countDocuments(),
     ]);
 
-    res.json({
-      ok: true,
-      data: {
-        totalAcademies,
-        totalCoaches,
-        totalUsers,
-        pendingVerifications,
-        totalEnquiries,
-      },
-    });
+    res.json(ok({
+      totalAcademies,
+      totalCoaches,
+      totalUsers,
+      pendingVerifications,
+      totalEnquiries,
+    }));
   } catch (err) {
-    res.status(500).json({ ok: false, error: 'Failed to load dashboard stats' });
+    res.status(500).json(fail('SERVER_ERROR', 'Failed to load dashboard stats'));
   }
 });
 
 router.get('/users', protect, adminOnly, async (req, res) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, parseInt(req.query.limit) || 20);
+    const page = clampPage(req.query.page);
+    const limit = clampPageSize(req.query.pageSize || req.query.limit);
     const skip = (page - 1) * limit;
 
     const [users, total] = await Promise.all([
@@ -48,13 +48,12 @@ router.get('/users', protect, adminOnly, async (req, res) => {
       User.countDocuments(),
     ]);
 
-    res.json({
-      ok: true,
-      data: users,
-      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-    });
+    res.json(ok({
+      items: users,
+      pagination: { page, pageSize: limit, total, hasMore: skip + users.length < total },
+    }));
   } catch (err) {
-    res.status(500).json({ ok: false, error: 'Failed to load users' });
+    res.status(500).json(fail('SERVER_ERROR', 'Failed to load users'));
   }
 });
 
@@ -62,13 +61,37 @@ router.put('/users/:id/role', protect, adminOnly, async (req, res) => {
   try {
     const { role } = req.body;
     if (!['athlete', 'parent', 'coach', 'academy_owner', 'admin'].includes(role)) {
-      return res.status(400).json({ ok: false, error: 'Invalid role' });
+      return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid role'));
     }
     const user = await User.findByIdAndUpdate(req.params.id, { role }, { new: true }).select('-password');
-    if (!user) return res.status(404).json({ ok: false, error: 'User not found' });
-    res.json({ ok: true, data: user });
+    if (!user) return res.status(404).json(fail('NOT_FOUND', 'User not found'));
+    res.json(ok(user));
   } catch (err) {
-    res.status(500).json({ ok: false, error: 'Failed to update user role' });
+    res.status(500).json(fail('SERVER_ERROR', 'Failed to update user role'));
+  }
+});
+
+// POST /admin/seed/sports — Seed all sports into the database
+router.post('/seed/sports', protect, adminOnly, async (req, res) => {
+  try {
+    const sportsData = require('../seeds/seedSports');
+    await Sport.deleteMany({});
+    const created = await Sport.insertMany(sportsData);
+    res.json(ok({ message: `Seeded ${created.length} sports successfully`, count: created.length }));
+  } catch (err) {
+    res.status(500).json(fail('SEED_ERROR', 'Failed to seed sports: ' + err.message));
+  }
+});
+
+// GET /admin/seed/status — Check seed status
+router.get('/seed/status', protect, adminOnly, async (req, res) => {
+  try {
+    const sportCount = await Sport.countDocuments();
+    const academyCount = await Academy.countDocuments();
+    const coachCount = await Coach.countDocuments();
+    res.json(ok({ sports: sportCount, academies: academyCount, coaches: coachCount }));
+  } catch (err) {
+    res.status(500).json(fail('SERVER_ERROR', 'Failed to check seed status'));
   }
 });
 

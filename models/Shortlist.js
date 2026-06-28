@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const shortlistSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     itemType: { type: String, enum: ['academy', 'coach'], required: true },
-    itemId: { type: mongoose.Schema.Types.ObjectId, required: true },
+    itemId: { type: String, required: true },
 }, { timestamps: true });
 
 // One user can save a given item only once
