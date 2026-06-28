@@ -31,11 +31,21 @@ const coachSchema = new mongoose.Schema({
         phone:          { type: String },
         email:          { type: String },
     },
+    bio:                { type: String },
+    achievements:       [{ type: String }],
     verificationStatus: { type: String, enum: ['unverified','pending','verified','rejected'], default: 'unverified' },
     rating: {
         average:        { type: Number, default: 0 },
         count:          { type: Number, default: 0 },
     },
+    sourceCount:        { type: Number, default: 0 },
+    dataProvenance: [{
+        sourceType:      { type: String },
+        sourceUrl:       { type: String },
+        confidenceScore: { type: Number, default: 0 },
+        lastVerifiedAt:  { type: Date },
+        _id: false
+    }],
     status:             { type: String, enum: ['draft','published','suspended'], default: 'published' },
 }, { timestamps: true });
 

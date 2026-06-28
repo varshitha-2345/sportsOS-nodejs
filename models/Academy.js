@@ -45,6 +45,15 @@ const academySchema = new mongoose.Schema({
         count:          { type: Number, default: 0 },
     },
     coverImage:         { type: String },
+    gallery:            [{ type: String }],
+    sourceCount:        { type: Number, default: 0 },
+    dataProvenance: [{
+        sourceType:      { type: String },
+        sourceUrl:       { type: String },
+        confidenceScore: { type: Number, default: 0 },
+        lastVerifiedAt:  { type: Date },
+        _id: false
+    }],
     status:             { type: String, enum: ['draft','published','suspended'], default: 'published' },
 }, { timestamps: true });
 

@@ -1,7 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { fail } = require('../utils/response');
 
-// Check if user is logged in (has valid token)
 const protect = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -13,11 +12,13 @@ const protect = (req, res, next) => {
         req.user = decoded;
         next();
     } catch (err) {
-        return res.status(401).json(fail('UNAUTHORIZED', 'Invalid or expired token.'));
+        if (err.name === 'TokenExpiredError') {
+            return res.status(401).json(fail('TOKEN_EXPIRED', 'Access token expired'));
+        }
+        return res.status(401).json(fail('TOKEN_INVALID', 'Invalid token'));
     }
 };
 
-// Check if logged in user is admin
 const adminOnly = (req, res, next) => {
     if (req.user && req.user.role === 'admin') {
         next();

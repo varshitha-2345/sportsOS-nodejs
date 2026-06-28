@@ -16,12 +16,26 @@ const getCoachBySlug = async (slug) => {
     return await Coach.findOne({ slug });
 };
 
-const getCoachesFiltered = async ({ sport, search, page = 1, pageSize = 20 }) => {
+const getCoachesFiltered = async ({ sport, city, experienceYears, search, page = 1, pageSize = 20 }) => {
     const query = { status: 'published' };
 
     if (sport) {
         const sports = sport.split(',').map(s => s.trim().toLowerCase());
         query.sportsCoached = { $in: sports };
+    }
+
+    if (city) {
+        const cities = city.split(',').map(c => c.trim());
+        query['location.city'] = { $in: cities.map(c => new RegExp(escapeRegex(c), 'i')) };
+    }
+
+    if (experienceYears) {
+        const parts = experienceYears.split('-').map(Number);
+        if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+            query.experienceYears = { $gte: parts[0], $lte: parts[1] };
+        } else if (parts.length === 1 && !isNaN(parts[0])) {
+            query.experienceYears = { $gte: parts[0] };
+        }
     }
 
     if (search) {

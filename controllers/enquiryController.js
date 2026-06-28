@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 const enquiryRepo = require('../repositories/enquiryRepository');
 const { ok, fail } = require('../utils/response');
+const { isValidEmail, validateObjectId } = require('../utils/validation');
 
 const enquiryLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
@@ -28,6 +29,10 @@ router.post('/', enquiryLimiter, async (req, res) => {
 
         if (!parentInfo.name || !parentInfo.email || !parentInfo.phone) {
             return res.status(400).json(fail('VALIDATION_ERROR', 'parentInfo.name, parentInfo.email, and parentInfo.phone are required'));
+        }
+
+        if (!isValidEmail(parentInfo.email)) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid email format'));
         }
 
         // Attach userId if authenticated (optional)

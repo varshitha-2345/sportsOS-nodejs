@@ -3,19 +3,26 @@ const router = express.Router();
 const athleteRepo = require('../repositories/athleteRepository');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 const { ok, fail } = require('../utils/response');
+const { validateObjectId, clampPageSize, clampPage } = require('../utils/validation');
+const publicLimiter = require('../middleware/publicLimiter');
 
 // ── PUBLIC ROUTES — No login required ─────────────────────────────
 
-router.get('/', async (req, res) => {
+router.get('/', publicLimiter, async (req, res) => {
     try {
-        const athletes = await athleteRepo.getAllAthletes();
-        res.json(ok(athletes));
+        const { sport, page, pageSize } = req.query;
+        const result = await athleteRepo.getAthletesFiltered({
+            sport,
+            page: clampPage(page),
+            pageSize: clampPageSize(pageSize),
+        });
+        res.json(ok(result));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
-router.get('/sport/:sport', async (req, res) => {
+router.get('/sport/:sport', publicLimiter, async (req, res) => {
     try {
         const athletes = await athleteRepo.getAthletesBySport(req.params.sport);
         res.json(ok(athletes));
@@ -24,7 +31,7 @@ router.get('/sport/:sport', async (req, res) => {
     }
 });
 
-router.get('/distance/:maxKm', async (req, res) => {
+router.get('/distance/:maxKm', publicLimiter, async (req, res) => {
     try {
         const athletes = await athleteRepo.getAthletesByDistance(req.params.maxKm);
         res.json(ok(athletes));
@@ -33,7 +40,7 @@ router.get('/distance/:maxKm', async (req, res) => {
     }
 });
 
-router.get('/distance/:maxKm/sport/:sport', async (req, res) => {
+router.get('/distance/:maxKm/sport/:sport', publicLimiter, async (req, res) => {
     try {
         const athletes = await athleteRepo.getAthletesByDistanceAndSport(
             req.params.maxKm,
@@ -45,7 +52,7 @@ router.get('/distance/:maxKm/sport/:sport', async (req, res) => {
     }
 });
 
-router.get('/goal/:goalType', async (req, res) => {
+router.get('/goal/:goalType', publicLimiter, async (req, res) => {
     try {
         const { goalType } = req.params;
         if (!['short-term', 'long-term'].includes(goalType)) {
@@ -61,8 +68,9 @@ router.get('/goal/:goalType', async (req, res) => {
     }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', publicLimiter, async (req, res) => {
     try {
+        if (!validateObjectId(req, res)) return;
         const athlete = await athleteRepo.getAthleteById(req.params.id);
         if (!athlete) return res.status(404).json(fail('NOT_FOUND', 'Athlete not found'));
         res.json(ok(athlete));
@@ -93,12 +101,46 @@ router.post('/', protect, adminOnly, async (req, res) => {
     }
 });
 
+// ── Validation helpers ─────────────────────────────────────────
+function validateAthleteUpdate(body) {
+    const errors = [];
+    if (body.name !== undefined) {
+        if (typeof body.name !== 'string' || body.name.trim().length === 0) errors.push('name must be a non-empty string');
+        else if (body.name.length > 200) errors.push('name must be 200 characters or fewer');
+    }
+    if (body.age !== undefined) {
+        const a = Number(body.age);
+        if (isNaN(a) || a < 3 || a > 25) errors.push('age must be a number between 3 and 25');
+    }
+    if (body.sport !== undefined) {
+        if (typeof body.sport !== 'string' && !Array.isArray(body.sport)) errors.push('sport must be a string or array');
+    }
+    if (body.goalType !== undefined) {
+        if (!['short-term', 'long-term'].includes(body.goalType)) errors.push('goalType must be short-term or long-term');
+    }
+    if (body.distanceKm !== undefined) {
+        const d = Number(body.distanceKm);
+        if (isNaN(d) || d < 0) errors.push('distanceKm must be a non-negative number');
+    }
+    return errors;
+}
+
+const ATHLETE_UPDATE_FIELDS = ['name','sport','age','academy','distanceKm','goalType'];
 router.put('/:id', protect, adminOnly, async (req, res) => {
     try {
-        if (req.body.sport && !Array.isArray(req.body.sport)) {
-            req.body.sport = [req.body.sport];
+        if (!validateObjectId(req, res)) return;
+        const allowed = {};
+        for (const key of ATHLETE_UPDATE_FIELDS) {
+            if (req.body[key] !== undefined) allowed[key] = req.body[key];
         }
-        const athlete = await athleteRepo.updateAthlete(req.params.id, req.body);
+        const errors = validateAthleteUpdate(allowed);
+        if (errors.length > 0) {
+            return res.status(400).json(fail('VALIDATION_ERROR', errors.join('; ')));
+        }
+        if (allowed.sport && !Array.isArray(allowed.sport)) {
+            allowed.sport = [allowed.sport];
+        }
+        const athlete = await athleteRepo.updateAthlete(req.params.id, allowed);
         if (!athlete) return res.status(404).json(fail('NOT_FOUND', 'Athlete not found'));
         res.json(ok(athlete));
     } catch (err) {
@@ -108,6 +150,7 @@ router.put('/:id', protect, adminOnly, async (req, res) => {
 
 router.delete('/:id', protect, adminOnly, async (req, res) => {
     try {
+        if (!validateObjectId(req, res)) return;
         const deleted = await athleteRepo.deleteAthlete(req.params.id);
         if (!deleted) return res.status(404).json(fail('NOT_FOUND', 'Athlete not found'));
         res.json(ok({ message: 'Deleted athlete with id ' + req.params.id }));

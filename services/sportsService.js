@@ -3,12 +3,12 @@
 // CRUD and comparison for the master Sports list.
 //
 // Frontend alignment (types/domain/sport.ts):
+//   - Sport.category: 'Indoor' | 'Outdoor' | 'Both'
+//   - Sport.sportType: 'team' | 'individual' | 'both'
 //   - Sport.competitionPathway: { levels: [{ key, label, description }] }
-//     levels: 'district' | 'state' | 'national' | 'international'
 //   - Sport.explorationGuidance: { ageSuitability?, physicalRequirements?, notes? }
+//   - Sport.tournaments: [{ tournamentName, level, organizer, frequency, shortDescription }]
 //   - Sport.status: 'published' | 'draft'
-//   - Sport.category: 'team' | 'individual' | 'combat' | 'racquet' | 'aquatic' | 'athletics' | 'other'
-//   - Sport.icon, Sport.coverImage
 //
 // Pages using sports:
 //   app/(public)/sports/page.tsx        — all sports listing
@@ -17,6 +17,9 @@
 
 const Sport       = require('../models/Sport');
 const slugService = require('./slugService');
+
+const DEFAULT_ICON   = '/images/sports/default-sport.svg';
+const DEFAULT_COVER  = '/images/sports/default-sport-cover.jpg';
 
 // ─── ADD SPORT ───────────────────────────────────────────────
 // Admin adds a new sport to the platform master list.
@@ -28,8 +31,19 @@ const addSport = async (data) => {
     ...data,
     slug,
     status: data.status || 'published',
+    icon: data.icon || DEFAULT_ICON,
+    coverImage: data.coverImage || DEFAULT_COVER,
     competitionPathway: data.competitionPathway || { levels: [] },
     explorationGuidance: data.explorationGuidance || null,
+    tournaments: data.tournaments || [],
+    physicalBenefits: data.physicalBenefits || [],
+    mentalBenefits: data.mentalBenefits || [],
+    skillsDeveloped: data.skillsDeveloped || [],
+    careerOpportunities: data.careerOpportunities || [],
+    scholarships: data.scholarships || [],
+    professionalLeagues: data.professionalLeagues || [],
+    requiredEquipment: data.requiredEquipment || [],
+    suitableFor: data.suitableFor || [],
   });
 };
 
@@ -59,7 +73,7 @@ const getAllSports = async ({ status = 'published', category } = {}) => {
 
 // ─── GET SPORT BY SLUG ────────────────────────────────────────
 // For SEO-friendly sport detail pages like /sports/cricket
-// Returns the full sport including competitionPathway and explorationGuidance.
+// Returns the full sport including all fields.
 const getSportBySlug = async (slug) => {
   const sport = await Sport.findOne({ slug });
   if (!sport) throw new Error('Sport not found');
@@ -75,7 +89,6 @@ const getSportById = async (sportId) => {
 
 // ─── COMPARE SPORTS ──────────────────────────────────────────
 // Side-by-side comparison of two sports.
-// Returns ageRange/difficulty/career from existing data + new pathway/guidance fields.
 const compareSports = async (sportId1, sportId2) => {
   const [s1, s2] = await Promise.all([
     Sport.findById(sportId1),
@@ -83,19 +96,29 @@ const compareSports = async (sportId1, sportId2) => {
   ]);
   if (!s1 || !s2) throw new Error('One or both sports not found');
 
-  // Helper to shape sport data uniformly for comparison
   const format = (s) => ({
-    id:                  s._id,
-    name:                s.name,
-    category:            s.category,
-    ageRange:            s.ageRange             || null, // legacy field
-    difficulty:          s.difficulty            || null, // legacy field
-    careerOpportunities: s.careerOpportunities   || null, // legacy field
-    competitionPathway:  s.competitionPathway    || { levels: [] },
-    explorationGuidance: s.explorationGuidance   || null,
-    description:         s.description,
-    icon:                s.icon                  || null,
-    coverImage:          s.coverImage            || null,
+    id:                    s._id,
+    name:                  s.name,
+    category:              s.category,
+    sportType:             s.sportType,
+    shortDescription:      s.shortDescription,
+    fullDescription:       s.fullDescription,
+    origin:                s.origin,
+    beginnerFriendly:      s.beginnerFriendly,
+    olympicSport:          s.olympicSport,
+    estimatedMonthlyCost:  s.estimatedMonthlyCost,
+    playingSeason:         s.playingSeason,
+    trainingFrequency:     s.trainingFrequency,
+    averageLearningTime:   s.averageLearningTime,
+    injuryRisk:            s.injuryRisk,
+    fitnessLevelRequired:  s.fitnessLevelRequired,
+    suitableFor:           s.suitableFor,
+    individualOrTeam:      s.individualOrTeam,
+    indoorOutdoor:         s.indoorOutdoor,
+    competitionPathway:    s.competitionPathway    || { levels: [] },
+    explorationGuidance:   s.explorationGuidance   || null,
+    icon:                  s.icon                  || DEFAULT_ICON,
+    coverImage:            s.coverImage            || DEFAULT_COVER,
   });
 
   return { sport1: format(s1), sport2: format(s2) };
