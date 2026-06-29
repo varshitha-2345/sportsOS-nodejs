@@ -22,7 +22,7 @@ const academySchema = new mongoose.Schema({
 
     fees:           { type: String },
 
-    // ✅ Changed from String to Array
+    // Facilities Array
     facilities: {
         type: [String],
         default: []
@@ -36,6 +36,27 @@ const academySchema = new mongoose.Schema({
     verified:       { type: Boolean, default: false },
 
     socialLinks:    { type: String },
+
+    // ✅ Added fields
+    gallery: {
+        type: [String],
+        default: []
+    },
+
+    trainingLevels: {
+        type: [String],
+        default: []
+    },
+
+    certifications: {
+        type: [String],
+        default: []
+    },
+
+    achievementSignals: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
 
     rating:         { type: Number, default: 0 },
     reviewCount:    { type: Number, default: 0 },
