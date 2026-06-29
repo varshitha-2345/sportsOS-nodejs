@@ -48,7 +48,10 @@ const getAcademiesFiltered = async ({ sport, facility, search, page = 1, pageSiz
 
     const total = await Academy.countDocuments(query);
     const skip = (page - 1) * pageSize;
-    const data = await Academy.find(query).sort({ createdAt: -1 }).skip(skip).limit(pageSize);
+    const data = await Academy.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(pageSize);
 
     return {
         items: data.map(mapAcademy),
@@ -80,13 +83,32 @@ const findDuplicate = async (name, city) => {
     });
 };
 
+// ✅ Modified
 const createAcademy = async (data) => {
+    if (typeof data.facilities === 'string') {
+        data.facilities = data.facilities
+            .split(',')
+            .map(item => item.trim());
+    }
+
     const academy = new Academy(data);
-    return await academy.save();
+    const saved = await academy.save();
+    return mapAcademy(saved);
 };
 
+// ✅ Modified
 const updateAcademy = async (id, data) => {
-    return await Academy.findByIdAndUpdate(id, data, { new: true });
+    if (typeof data.facilities === 'string') {
+        data.facilities = data.facilities
+            .split(',')
+            .map(item => item.trim());
+    }
+
+    const updated = await Academy.findByIdAndUpdate(id, data, {
+        new: true,
+    });
+
+    return mapAcademy(updated);
 };
 
 const deleteAcademy = async (id) => {
