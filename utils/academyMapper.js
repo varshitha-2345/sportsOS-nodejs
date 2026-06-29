@@ -33,7 +33,13 @@ const mapAcademy = (doc) => {
 
         // ALL of these must be arrays — never undefined or null
         gallery: Array.isArray(d.gallery) ? d.gallery : [],
-        facilities: Array.isArray(d.facilities) ? d.facilities : [],
+
+        facilities: Array.isArray(d.facilities)
+            ? d.facilities
+            : typeof d.facilities === 'string'
+                ? d.facilities.split(',').map(item => item.trim())
+                : [],
+
         trainingLevels: Array.isArray(d.trainingLevels) ? d.trainingLevels : [],
         certifications: Array.isArray(d.certifications) ? d.certifications : [],
 
