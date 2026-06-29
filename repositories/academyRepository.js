@@ -1,4 +1,4 @@
-const { formatAcademy } = require('../utils/Academymapper');
+const { mapAcademy } = require('../utils/academyMapper');
 const Academy = require('../models/Academy');
 
 function escapeRegex(str) {
@@ -7,17 +7,17 @@ function escapeRegex(str) {
 
 const getAllAcademies = async () => {
     const docs = await Academy.find({});
-    return docs.map(formatAcademy);
+    return docs.map(mapAcademy);
 };
 
 const getAcademyById = async (id) => {
     const doc = await Academy.findById(id);
-    return formatAcademy(doc);
+    return mapAcademy(doc);
 };
 
 const getAcademyBySlug = async (slug) => {
     const doc = await Academy.findOne({ slug });
-    return formatAcademy(doc);
+    return mapAcademy(doc);
 };
 
 const getAcademiesFiltered = async ({ sport, facility, search, page = 1, pageSize = 20 }) => {
@@ -51,7 +51,7 @@ const getAcademiesFiltered = async ({ sport, facility, search, page = 1, pageSiz
     const data = await Academy.find(query).sort({ createdAt: -1 }).skip(skip).limit(pageSize);
 
     return {
-        items: data.map(formatAcademy),
+        items: data.map(mapAcademy),
         pagination: {
             page,
             pageSize,
@@ -65,12 +65,12 @@ const getAcademiesBySport = async (sportParam) => {
     const sports = sportParam.split(',').map(s => s.trim());
     const regexList = sports.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i'));
     const docs = await Academy.find({ sport: { $in: regexList } });
-    return docs.map(formatAcademy);
+    return docs.map(mapAcademy);
 };
 
 const getVerifiedAcademies = async () => {
     const docs = await Academy.find({ verified: true });
-    return docs.map(formatAcademy);
+    return docs.map(mapAcademy);
 };
 
 const findDuplicate = async (name, city) => {
