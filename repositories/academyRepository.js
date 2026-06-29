@@ -4,8 +4,9 @@ function escapeRegex(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Get all academies — no status filter, since her data has no 'status' field
 const getAllAcademies = async () => {
-    return await Academy.find({ status: 'published' });
+    return await Academy.find({});
 };
 
 const getAcademyById = async (id) => {
@@ -16,27 +17,22 @@ const getAcademyBySlug = async (slug) => {
     return await Academy.findOne({ slug });
 };
 
-const getAcademiesFiltered = async ({ sport, facility, level, status, search, page = 1, pageSize = 20 }) => {
-    const query = { status: 'published' };
+// Filtered + paginated search — matches her real field names
+const getAcademiesFiltered = async ({ sport, facility, search, page = 1, pageSize = 20 }) => {
+    const query = {};
 
+    // sport is a single string field (e.g. "Cricket"), not an array
     if (sport) {
-        const sports = sport.split(',').map(s => s.trim().toLowerCase());
-        query.sportsOffered = { $in: sports };
+        const sports = sport.split(',').map(s => s.trim());
+        const regexList = sports.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i'));
+        query.sport = { $in: regexList };
     }
 
+    // facilities is a single comma-separated string, e.g. "Gym, Practice Pitch, Bowling Machine"
     if (facility) {
         const facilities = facility.split(',').map(f => f.trim());
-        query.facilities = { $all: facilities };
-    }
-
-    if (level) {
-        const levels = level.split(',').map(l => l.trim());
-        query.trainingLevels = { $in: levels };
-    }
-
-    if (status) {
-        const statuses = status.split(',').map(s => s.trim());
-        query.verificationStatus = { $in: statuses };
+        const regexList = facilities.map(f => new RegExp(escapeRegex(f), 'i'));
+        query.facilities = { $in: regexList };
     }
 
     if (search) {
@@ -44,9 +40,9 @@ const getAcademiesFiltered = async ({ sport, facility, level, status, search, pa
         query.$or = [
             { name: regex },
             { description: regex },
-            { 'location.city': regex },
-            { 'location.state': regex },
-            { sportsOffered: { $in: [regex] } },
+            { city: regex },
+            { state: regex },
+            { sport: regex },
         ];
     }
 
@@ -65,19 +61,22 @@ const getAcademiesFiltered = async ({ sport, facility, level, status, search, pa
     };
 };
 
+// sport is a single string in her data — use case-insensitive exact match
 const getAcademiesBySport = async (sportParam) => {
-    const sports = sportParam.split(',').map(s => s.trim().toLowerCase());
-    return await Academy.find({ sportsOffered: { $in: sports }, status: 'published' });
+    const sports = sportParam.split(',').map(s => s.trim());
+    const regexList = sports.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i'));
+    return await Academy.find({ sport: { $in: regexList } });
 };
 
+// her field is called "verified" (boolean), not "verificationStatus"
 const getVerifiedAcademies = async () => {
-    return await Academy.find({ verificationStatus: 'verified', status: 'published' });
+    return await Academy.find({ verified: true });
 };
 
 const findDuplicate = async (name, city) => {
     return await Academy.findOne({
         name: { $regex: new RegExp(`^${escapeRegex(name)}$`, 'i') },
-        'location.city': { $regex: new RegExp(`^${escapeRegex(city)}$`, 'i') },
+        city: { $regex: new RegExp(`^${escapeRegex(city)}$`, 'i') },
     });
 };
 
