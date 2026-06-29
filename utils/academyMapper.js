@@ -5,7 +5,7 @@ const mapAcademy = (doc) => {
     const d = doc.toObject ? doc.toObject() : doc;
 
     return {
-        id: d._id,
+        id:d.academyId || d._id,
         name: d.name || '',
         slug: d.slug || '',
         description: d.description || '',
@@ -19,10 +19,12 @@ const mapAcademy = (doc) => {
             lng: d.longitude || 0,
         },
 
-        contact: {
-            phone: d.contactNumber || '',
-            googleMaps: d.googleMapsLink || '',
-        },
+    contact: {
+    phone: d.contactNumber || '',
+    email: '',
+    website: '',
+    googleMaps: d.googleMapsLink || '',
+},
 
         // Always return array — never undefined
         sportsOffered: d.sport
