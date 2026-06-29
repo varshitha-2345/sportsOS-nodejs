@@ -1,35 +1,34 @@
-const { formatAcademy }=require('../utils/Academymapper');
+const { formatAcademy } = require('../utils/Academymapper');
 const Academy = require('../models/Academy');
 
 function escapeRegex(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Get all academies — no status filter, since her data has no 'status' field
 const getAllAcademies = async () => {
-    return await Academy.find({});
+    const docs = await Academy.find({});
+    return docs.map(formatAcademy);
 };
 
 const getAcademyById = async (id) => {
-    return await Academy.findById(id);
+    const doc = await Academy.findById(id);
+    return formatAcademy(doc);
 };
 
 const getAcademyBySlug = async (slug) => {
-    return await Academy.findOne({ slug });
+    const doc = await Academy.findOne({ slug });
+    return formatAcademy(doc);
 };
 
-// Filtered + paginated search — matches her real field names
 const getAcademiesFiltered = async ({ sport, facility, search, page = 1, pageSize = 20 }) => {
     const query = {};
 
-    // sport is a single string field (e.g. "Cricket"), not an array
     if (sport) {
         const sports = sport.split(',').map(s => s.trim());
         const regexList = sports.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i'));
         query.sport = { $in: regexList };
     }
 
-    // facilities is a single comma-separated string, e.g. "Gym, Practice Pitch, Bowling Machine"
     if (facility) {
         const facilities = facility.split(',').map(f => f.trim());
         const regexList = facilities.map(f => new RegExp(escapeRegex(f), 'i'));
@@ -52,7 +51,7 @@ const getAcademiesFiltered = async ({ sport, facility, search, page = 1, pageSiz
     const data = await Academy.find(query).sort({ createdAt: -1 }).skip(skip).limit(pageSize);
 
     return {
-        items: data,
+        items: data.map(formatAcademy),
         pagination: {
             page,
             pageSize,
@@ -62,16 +61,16 @@ const getAcademiesFiltered = async ({ sport, facility, search, page = 1, pageSiz
     };
 };
 
-// sport is a single string in her data — use case-insensitive exact match
 const getAcademiesBySport = async (sportParam) => {
     const sports = sportParam.split(',').map(s => s.trim());
     const regexList = sports.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i'));
-    return await Academy.find({ sport: { $in: regexList } });
+    const docs = await Academy.find({ sport: { $in: regexList } });
+    return docs.map(formatAcademy);
 };
 
-// her field is called "verified" (boolean), not "verificationStatus"
 const getVerifiedAcademies = async () => {
-    return await Academy.find({ verified: true });
+    const docs = await Academy.find({ verified: true });
+    return docs.map(formatAcademy);
 };
 
 const findDuplicate = async (name, city) => {
