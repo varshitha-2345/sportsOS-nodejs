@@ -1,3 +1,4 @@
+const { formatAcademy }=require('../utils/Academymapper');
 const Academy = require('../models/Academy');
 
 function escapeRegex(str) {
