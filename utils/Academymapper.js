@@ -7,7 +7,7 @@ const mapAcademy = (doc) => {
     const d = doc.toObject ? doc.toObject() : doc;
 
     return {
-        id: d._id,
+        id: d._id?.toString(),
         name: d.name || '',
         slug: d.slug || '',
         description: d.description || '',
@@ -25,6 +25,8 @@ const mapAcademy = (doc) => {
         // contact object
         contact: {
             phone: d.contactNumber || '',
+            email: d.email || '',
+            website: d.website || '',
             googleMaps: d.googleMapsLink || '',
         },
 
@@ -47,10 +49,17 @@ const mapAcademy = (doc) => {
         verificationStatus: d.verified === true ? 'verified' : 'unverified',
 
         // social
-        socialLinks: d.socialLinks || {},
+        socialLinks:
+        typeof d.socialLinks === "string"
+        ? JSON.parse(d.socialLinks)
+        : (d.socialLinks || {}),
 
         // defaults for missing fields
-        facilities: d.facilities || [],
+        facilities: Array.isArray(d.facilities)
+        ? d.facilities
+        : (typeof d.facilities === "string"
+        ? d.facilities.split(",").map(f => f.trim())
+        : []),
         trainingLevels: d.batchTimings ? [d.batchTimings] : [],
         certifications: [],
         achievementSignals: {},
