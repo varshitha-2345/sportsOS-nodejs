@@ -7,24 +7,40 @@ const academySchema = new mongoose.Schema({
     latitude:       { type: Number },
     longitude:      { type: Number },
     description:    { type: String },
-    sport:          { type: String, required: true },   // single string, e.g. "Cricket"
+
+    // Single sport stored in DB
+    sport:          { type: String, required: true },
+
     address:        { type: String },
     city:           { type: String },
     state:          { type: String },
+
     contactNumber:  { type: String },
     googleMapsLink: { type: String },
+
     academyImage:   { type: String },
+
     fees:           { type: String },
-    facilities:     { type: String },   // comma-separated string, e.g. "Gym, Practice Pitch"
+
+    // ✅ Changed from String to Array
+    facilities: {
+        type: [String],
+        default: []
+    },
+
     batchTimings:   { type: String },
     ageGroups:      { type: String },
     gender:         { type: String },
     batchCapacity:  { type: Number },
+
     verified:       { type: Boolean, default: false },
-    socialLinks:    { type: String },   // stored as a JSON string
+
+    socialLinks:    { type: String },
+
     rating:         { type: Number, default: 0 },
     reviewCount:    { type: Number, default: 0 },
-    savedCount:     { type: Number, default: 0 },
+    savedCount:     { type: Number, default: 0 }
+
 }, { timestamps: true });
 
 module.exports = mongoose.model('Academy', academySchema);
