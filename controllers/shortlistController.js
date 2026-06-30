@@ -4,6 +4,8 @@ const { protect } = require('../middleware/authMiddleware');
 const shortlistRepo = require('../repositories/shortlistRepository');
 const Academy = require('../models/Academy');
 const Coach = require('../models/Coach');
+const { mapAcademy } = require('../utils/academyMapper');
+const { mapCoach } = require('../utils/coachMapper');
 const { ok, fail } = require('../utils/response');
 
 // GET /shortlist/me — get current user's shortlist (raw records)
@@ -28,8 +30,8 @@ router.get('/me/populated', protect, async (req, res) => {
             coachSlugs.length > 0 ? Coach.find({ slug: { $in: coachSlugs } }) : [],
         ]);
 
-        const academyMap = new Map(academies.map(a => [a.slug, a.toJSON()]));
-        const coachMap = new Map(coaches.map(c => [c.slug, c.toJSON()]));
+        const academyMap = new Map(academies.map(a => [a.slug, mapAcademy(a)]));
+        const coachMap = new Map(coaches.map(c => [c.slug, mapCoach(c)]));
 
         const populated = items.map(item => {
             const data = item.itemType === 'academy'

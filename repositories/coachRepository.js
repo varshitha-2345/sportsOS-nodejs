@@ -1,3 +1,4 @@
+const { mapCoach } = require('../utils/coachMapper');
 const Coach = require('../models/Coach');
 
 function escapeRegex(str) {
@@ -5,15 +6,18 @@ function escapeRegex(str) {
 }
 
 const getAllCoaches = async () => {
-    return await Coach.find({ status: 'published' });
+    const docs = await Coach.find({ status: 'published' });
+    return docs.map(mapCoach);
 };
 
 const getCoachById = async (id) => {
-    return await Coach.findById(id);
+    const doc = await Coach.findById(id);
+    return mapCoach(doc);
 };
 
 const getCoachBySlug = async (slug) => {
-    return await Coach.findOne({ slug });
+    const doc = await Coach.findOne({ slug });
+    return mapCoach(doc);
 };
 
 const getCoachesFiltered = async ({ sport, city, experienceYears, search, page = 1, pageSize = 20 }) => {
@@ -51,10 +55,13 @@ const getCoachesFiltered = async ({ sport, city, experienceYears, search, page =
 
     const total = await Coach.countDocuments(query);
     const skip = (page - 1) * pageSize;
-    const data = await Coach.find(query).sort({ createdAt: -1 }).skip(skip).limit(pageSize);
+    const data = await Coach.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(pageSize);
 
     return {
-        items: data,
+        items: data.map(mapCoach),
         pagination: {
             page,
             pageSize,
@@ -65,14 +72,21 @@ const getCoachesFiltered = async ({ sport, city, experienceYears, search, page =
 };
 
 const getCoachesByAcademy = async (academyId) => {
-    return await Coach.find({ academyId, status: 'published' });
+    const docs = await Coach.find({
+        academyId,
+        status: 'published',
+    });
+
+    return docs.map(mapCoach);
 };
 
 const getCoachesBySport = async (sport) => {
-    return await Coach.find({
+    const docs = await Coach.find({
         sportsCoached: { $in: [sport.toLowerCase()] },
         status: 'published',
     });
+
+    return docs.map(mapCoach);
 };
 
 const findDuplicate = async (name, academyId) => {
@@ -84,11 +98,16 @@ const findDuplicate = async (name, academyId) => {
 
 const createCoach = async (data) => {
     const coach = new Coach(data);
-    return await coach.save();
+    const saved = await coach.save();
+    return mapCoach(saved);
 };
 
 const updateCoach = async (id, data) => {
-    return await Coach.findByIdAndUpdate(id, data, { new: true });
+    const updated = await Coach.findByIdAndUpdate(id, data, {
+        new: true,
+    });
+
+    return mapCoach(updated);
 };
 
 const deleteCoach = async (id) => {

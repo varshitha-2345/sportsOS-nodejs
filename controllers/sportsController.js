@@ -4,16 +4,13 @@ const sportsService = require('../services/sportsService');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 const { ok, fail } = require('../utils/response');
 const publicLimiter = require('../middleware/publicLimiter');
+const { mapSport } = require('../utils/sportMapper');
 
-const DEFAULT_ICON  = '/images/sports/default-sport.svg';
-const DEFAULT_COVER = '/images/sports/default-sport-cover.jpg';
-
+// applyDefaults now delegates to mapSport so every /sports response carries
+// a consistent `id` field (same convention as academies/coaches) in addition
+// to the icon/coverImage fallbacks.
 function applyDefaults(sport) {
-  if (!sport) return sport;
-  const obj = sport.toObject ? sport.toObject() : { ...sport };
-  if (!obj.icon)      obj.icon      = DEFAULT_ICON;
-  if (!obj.coverImage) obj.coverImage = DEFAULT_COVER;
-  return obj;
+  return mapSport(sport);
 }
 
 function applyDefaultsToList(sports) {
