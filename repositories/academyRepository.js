@@ -73,6 +73,12 @@ const getVerifiedAcademies = async () => {
     return docs.map(mapAcademy);
 };
 
+// Used by the compare feature — fetch multiple academies by their ids
+const getAcademiesByIds = async (idArray) => {
+    const docs = await Academy.find({ _id: { $in: idArray } });
+    return docs.map(mapAcademy);
+};
+
 const findDuplicate = async (name, city) => {
     return await Academy.findOne({
         name: { $regex: new RegExp(`^${escapeRegex(name)}$`, 'i') },
@@ -104,6 +110,7 @@ module.exports = {
     getAcademiesFiltered,
     getAcademiesBySport,
     getVerifiedAcademies,
+    getAcademiesByIds,
     findDuplicate,
     createAcademy,
     updateAcademy,

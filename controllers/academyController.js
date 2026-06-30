@@ -54,6 +54,42 @@ router.get('/by-slug/:slug', publicLimiter, async (req, res) => {
     }
 });
 
+// GET /academies/compare?ids=id1,id2,id3
+// IMPORTANT: this must stay ABOVE GET /:id, otherwise Express will treat
+// "compare" as an :id value and this route will never be reached.
+router.get('/compare', publicLimiter, async (req, res) => {
+    try {
+        const { ids } = req.query;
+
+        if (!ids) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'ids query param is required, e.g. ?ids=id1,id2,id3'));
+        }
+
+        const idList = ids.split(',').map(id => id.trim()).filter(Boolean);
+
+        if (idList.length < 2) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'At least 2 academy ids are required to compare'));
+        }
+
+        if (idList.length > 4) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'You can compare a maximum of 4 academies at once'));
+        }
+
+        const academies = await academyRepo.getAcademiesByIds(idList);
+
+        if (academies.length === 0) {
+            return res.status(404).json(fail('NOT_FOUND', 'No academies found for the given ids'));
+        }
+
+        res.json(ok({
+            count: academies.length,
+            items: academies,
+        }));
+    } catch (err) {
+        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
+    }
+});
+
 // GET /academies/:id
 router.get('/:id', publicLimiter, async (req, res) => {
     try {
