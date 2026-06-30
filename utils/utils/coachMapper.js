@@ -1,4 +1,7 @@
 // utils/coachMapper.js
+// Converts a raw MongoDB Coach document into the frontend-expected shape.
+// Mirrors the structure produced by academyMapper.js so that List, Detail,
+// Save/Shortlist, and Compare all return the same shape for a coach.
 
 const mapCoach = (doc) => {
     if (!doc) return null;
@@ -6,19 +9,23 @@ const mapCoach = (doc) => {
     const d = doc.toObject ? doc.toObject() : doc;
 
     return {
-        id: d._id,
+        id: d._id?.toString(),
 
         name: d.name || '',
         slug: d.slug || '',
 
         avatar: d.avatar || '',
+        bio: d.bio || '',
 
-        academyId: d.academyId || '',
+        academyId: d.academyId ? d.academyId.toString() : null,
 
         location: {
+            address: d.location?.address || '',
             city: d.location?.city || '',
             state: d.location?.state || '',
-            country: d.location?.country || 'India',
+            country: d.location?.country || 'IN',
+            lat: d.location?.lat || 0,
+            lng: d.location?.lng || 0,
         },
 
         contact: {
@@ -39,23 +46,20 @@ const mapCoach = (doc) => {
                 ? [d.specialization]
                 : [],
 
-        certifications: Array.isArray(d.certifications)
-            ? d.certifications
-            : d.certifications
-                ? [d.certifications]
-                : [],
+        // certifications is an array of { name, issuer, year, documentUrl } objects
+        certifications: Array.isArray(d.certifications) ? d.certifications : [],
+
+        achievements: Array.isArray(d.achievements) ? d.achievements : [],
 
         experienceYears: d.experienceYears || 0,
 
+        // rating is stored as { average, count } on the Coach schema — never a bare number
         rating: {
-            average: typeof d.rating === 'number' ? d.rating : 0,
-            count: d.reviewCount || 0,
+            average: d.rating?.average || 0,
+            count: d.rating?.count || 0,
         },
 
-        verificationStatus:
-            d.verificationStatus ||
-            (d.verified ? 'verified' : 'unverified'),
-
+        verificationStatus: d.verificationStatus || 'unverified',
         status: d.status || 'published',
 
         createdAt: d.createdAt || null,
