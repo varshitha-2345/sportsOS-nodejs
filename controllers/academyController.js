@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const academyRepo = require('../repositories/academyRepository');
+const { unmapAcademyInput } = require('../utils/academyMapper');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 const { ok, fail } = require('../utils/response');
 const { validateObjectId, clampPageSize, clampPage } = require('../utils/validation');
@@ -81,8 +82,10 @@ router.post('/', protect, adminOnly, async (req, res) => {
         }
         const academy = await academyRepo.createAcademy({
             slug: slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
-            name, description, location, contact, sportsOffered, facilities, trainingLevels,
-            certifications, verificationStatus, achievementSignals, rating, coverImage, status,
+            ...unmapAcademyInput({
+                name, description, location, contact, sportsOffered, facilities, trainingLevels,
+                certifications, verificationStatus, achievementSignals, rating, coverImage, status,
+            }),
         });
         res.status(201).json(ok(academy));
     } catch (err) {
@@ -106,8 +109,10 @@ function validateAcademyUpdate(body) {
         else if (body.description.length > 2000) errors.push('description must be 2000 characters or fewer');
     }
     if (body.rating !== undefined) {
-        const r = Number(body.rating);
-        if (isNaN(r) || r < 0 || r > 5) errors.push('rating must be a number between 0 and 5');
+        const avg = typeof body.rating === 'object' && body.rating !== null
+            ? Number(body.rating.average)
+            : Number(body.rating);
+        if (isNaN(avg) || avg < 0 || avg > 5) errors.push('rating.average must be a number between 0 and 5');
     }
     if (body.status !== undefined) {
         if (!['draft', 'published', 'suspended'].includes(body.status)) errors.push('status must be draft, published, or suspended');
@@ -128,7 +133,7 @@ router.put('/:id', protect, adminOnly, async (req, res) => {
         if (errors.length > 0) {
             return res.status(400).json(fail('VALIDATION_ERROR', errors.join('; ')));
         }
-        const academy = await academyRepo.updateAcademy(req.params.id, allowed);
+        const academy = await academyRepo.updateAcademy(req.params.id, unmapAcademyInput(allowed));
         if (!academy) return res.status(404).json(fail('NOT_FOUND', 'Academy not found'));
         res.json(ok(academy));
     } catch (err) {
