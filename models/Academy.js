@@ -60,7 +60,13 @@ const academySchema = new mongoose.Schema({
 
     rating:         { type: Number, default: 0 },
     reviewCount:    { type: Number, default: 0 },
-    savedCount:     { type: Number, default: 0 }
+    savedCount:     { type: Number, default: 0 },
+
+    status: {
+        type: String,
+        enum: ['draft', 'published', 'suspended'],
+        default: 'published'
+    }
 
 }, { timestamps: true });
 
