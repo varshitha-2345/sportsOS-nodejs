@@ -1,8 +1,25 @@
 // utils/academyMapper.js
+// utils/academyMapper.js
 const mapAcademy = (doc) => {
     if (!doc) return null;
 
     const d = doc.toObject ? doc.toObject() : doc;
+
+    // socialLinks is stored as a String in the DB (sometimes a JSON string,
+    // sometimes empty). Always return a real object to the frontend so
+    // code like socialLinks.instagram never breaks.
+    let parsedSocialLinks = {};
+    if (d.socialLinks) {
+        if (typeof d.socialLinks === 'string') {
+            try {
+                parsedSocialLinks = JSON.parse(d.socialLinks);
+            } catch (e) {
+                parsedSocialLinks = {};
+            }
+        } else if (typeof d.socialLinks === 'object') {
+            parsedSocialLinks = d.socialLinks;
+        }
+    }
 
     return {
         id: d._id?.toString(),
@@ -19,12 +36,12 @@ const mapAcademy = (doc) => {
             lng: d.longitude || 0,
         },
 
-    contact: {
-    phone: d.contactNumber || '',
-    email: '',
-    website: '',
-    googleMaps: d.googleMapsLink || '',
-},
+        contact: {
+            phone: d.contactNumber || '',
+            email: '',
+            website: '',
+            googleMaps: d.googleMapsLink || '',
+        },
 
         // Always return array — never undefined
         sportsOffered: d.sport
@@ -52,7 +69,7 @@ const mapAcademy = (doc) => {
 
         // Always return object — never undefined
         achievementSignals: d.achievementSignals || {},
-        socialLinks: d.socialLinks || {},
+        socialLinks: parsedSocialLinks,
 
         verificationStatus: d.verified === true ? 'verified' : 'unverified',
         status: d.status || 'published',
@@ -70,7 +87,7 @@ const mapAcademy = (doc) => {
 
 module.exports = { mapAcademy };
 
-// ─── unmapAcademyInput ──────────────────────────────────────────
+// ─── unmapAcademyInput ─────────────────────────────────────────────
 // Converts an admin-submitted, frontend-shaped payload (nested location,
 // contact, sportsOffered array, rating object) into the flat fields the
 // Academy schema actually stores. Without this, create/update silently
@@ -116,6 +133,14 @@ function unmapAcademyInput(body = {}) {
     if (body.rating && typeof body.rating === 'object') {
         if (body.rating.average !== undefined) out.rating = body.rating.average;
         if (body.rating.count !== undefined) out.reviewCount = body.rating.count;
+    }
+
+    // socialLinks: frontend may send an object; store it as a JSON string
+    // to match the current schema (socialLinks: String)
+    if (body.socialLinks !== undefined) {
+        out.socialLinks = typeof body.socialLinks === 'string'
+            ? body.socialLinks
+            : JSON.stringify(body.socialLinks);
     }
 
     if (body.coverImage !== undefined) out.academyImage = body.coverImage;
