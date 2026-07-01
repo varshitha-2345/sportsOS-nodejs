@@ -4,7 +4,7 @@ const { Schema } = mongoose;
 const tournamentSchema = new Schema({
   tournamentName:   { type: String, required: true },
   level:            { type: String, enum: ['International', 'National'], required: true },
-  organizer:        { type: String, required: true },
+  organizer: { type: String },
   frequency:        { type: String, required: true },
   shortDescription: { type: String, required: true },
 }, { _id: false });
