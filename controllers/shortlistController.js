@@ -22,16 +22,22 @@ router.get('/me', protect, async (req, res) => {
 router.get('/me/populated', protect, async (req, res) => {
     try {
         const items = await shortlistRepo.findByUser(req.user.id);
-        const academySlugs = items.filter(i => i.itemType === 'academy').map(i => i.itemId);
-        const coachSlugs = items.filter(i => i.itemType === 'coach').map(i => i.itemId);
+
+        const academyIds = items.filter(i => i.itemType === 'academy').map(i => i.itemId);
+        const coachIds = items.filter(i => i.itemType === 'coach').map(i => i.itemId);
+
+        const mongoose = require('mongoose');
+
+        const validAcademyIds = academyIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+        const validCoachIds = coachIds.filter(id => mongoose.Types.ObjectId.isValid(id));
 
         const [academies, coaches] = await Promise.all([
-            academySlugs.length > 0 ? Academy.find({ slug: { $in: academySlugs } }) : [],
-            coachSlugs.length > 0 ? Coach.find({ slug: { $in: coachSlugs } }) : [],
+            validAcademyIds.length > 0 ? Academy.find({ _id: { $in: validAcademyIds } }) : [],
+            validCoachIds.length > 0 ? Coach.find({ _id: { $in: validCoachIds } }) : [],
         ]);
 
-        const academyMap = new Map(academies.map(a => [a.slug, mapAcademy(a)]));
-        const coachMap = new Map(coaches.map(c => [c.slug, mapCoach(c)]));
+        const academyMap = new Map(academies.map(a => [a._id.toString(), mapAcademy(a)]));
+        const coachMap = new Map(coaches.map(c => [c._id.toString(), mapCoach(c)]));
 
         const populated = items.map(item => {
             const data = item.itemType === 'academy'
