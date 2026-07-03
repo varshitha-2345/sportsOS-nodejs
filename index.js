@@ -66,8 +66,6 @@ if (process.env.NODE_ENV === 'production' && ALLOWED_ORIGINS.length === 0) {
 
 const corsOptions = {
   origin: (origin, callback) => {
-    console.log("Incoming Origin:", origin);
-    console.log("Allowed Origins:", ALLOWED_ORIGINS);
     if (!origin) return callback(null, true);
     if (ALLOWED_ORIGINS.length === 0) {
       return callback(null, true);

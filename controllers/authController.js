@@ -14,19 +14,19 @@ const { protect } = require('../middleware/authMiddleware');
 const { isValidEmail } = require('../utils/validation');
 const logger = require('../utils/logger');
 
-// Strict login limiter: temporary relaxed limits (testing)
+// Strict login limiter
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 10,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many login attempts. Please try again in 15 minutes.' } },
     standardHeaders: true,
     legacyHeaders: false,
 });
 
-// Register limiter: temporary relaxed limits (testing)
+// Register limiter
 const registerLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 5,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many registration attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
@@ -41,19 +41,19 @@ const authLimiter = rateLimit({
     legacyHeaders: false,
 });
 
-// Forgot password limiter: temporary relaxed limits (testing)
+// Forgot password limiter
 const forgotPasswordLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 5,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many password reset requests. Please try again in an hour.' } },
     standardHeaders: true,
     legacyHeaders: false,
 });
 
-// Reset password limiter: temporary relaxed limits (testing)
+// Reset password limiter
 const resetPasswordLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 5,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many password reset attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
@@ -68,20 +68,29 @@ const refreshLimiter = rateLimit({
     legacyHeaders: false,
 });
 
-// OTP limiter: temporary relaxed limits (testing)
+// OTP limiter
 const otpLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 10,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many verification attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
 });
 
-// Resend OTP limiter: temporary relaxed limits (testing)
+// Resend OTP limiter
 const resendOtpLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 5,
     message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many resend requests. Please try again later.' } },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Verify Login OTP limiter (stricter — separate from general OTP limiter)
+const verifyLoginOtpLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many verification attempts. Please try again later.' } },
     standardHeaders: true,
     legacyHeaders: false,
 });
@@ -516,12 +525,12 @@ router.get('/me', protect, async (req, res) => {
 
 const VALID_SKILL_LEVELS = ['beginner', 'intermediate', 'advanced', 'competitive'];
 const VALID_GENDERS = ['male', 'female', 'other', 'prefer_not_to_say'];
-const VALID_ONBOARDING_ROLES = ['athlete', 'parent'];
+const VALID_ONBOARDING_ROLES = ['athlete', 'parent', 'coach', 'academy_owner'];
 
 function validateOnboarding(body) {
     const errors = [];
     if (body.role !== undefined && !VALID_ONBOARDING_ROLES.includes(body.role)) {
-        errors.push('role must be athlete or parent');
+        errors.push('role must be athlete, parent, coach, or academy_owner');
     }
     if (body.age !== undefined) {
         const a = Number(body.age);
@@ -897,7 +906,6 @@ router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
         }
 
         const fetch = (await import('node-fetch')).default;
-        const crypto = require('crypto');
 
         // Decode the token header to get the kid
         const parts = idToken.split('.');
@@ -1062,7 +1070,7 @@ router.post('/login-otp', otpLimiter, async (req, res) => {
 // ─── POST /auth/verify-login-otp ─────────────────────────────
 // Verifies OTP for passwordless login.
 
-router.post('/verify-login-otp', otpLimiter, async (req, res) => {
+router.post('/verify-login-otp', verifyLoginOtpLimiter, async (req, res) => {
     try {
         const { email, otp } = req.body;
         if (!email || !otp) {
