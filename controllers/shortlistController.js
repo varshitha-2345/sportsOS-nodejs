@@ -4,6 +4,7 @@ const { protect } = require('../middleware/authMiddleware');
 const shortlistRepo = require('../repositories/shortlistRepository');
 const Academy = require('../models/Academy');
 const Coach = require('../models/Coach');
+const Sport = require('../models/Sport');
 const { mapAcademy } = require('../utils/academyMapper');
 const { mapCoach } = require('../utils/coachMapper');
 const { ok, fail } = require('../utils/response');
@@ -25,25 +26,33 @@ router.get('/me/populated', protect, async (req, res) => {
 
         const academyIds = items.filter(i => i.itemType === 'academy').map(i => i.itemId);
         const coachIds = items.filter(i => i.itemType === 'coach').map(i => i.itemId);
+        const sportSlugs = items.filter(i => i.itemType === 'sport').map(i => i.itemId);
 
         const mongoose = require('mongoose');
 
         const validAcademyIds = academyIds.filter(id => mongoose.Types.ObjectId.isValid(id));
         const validCoachIds = coachIds.filter(id => mongoose.Types.ObjectId.isValid(id));
 
-        const [academies, coaches] = await Promise.all([
+        const [academies, coaches, sports] = await Promise.all([
             validAcademyIds.length > 0 ? Academy.find({ _id: { $in: validAcademyIds } }) : [],
             validCoachIds.length > 0 ? Coach.find({ _id: { $in: validCoachIds } }) : [],
+            sportSlugs.length > 0 ? Sport.find({ slug: { $in: sportSlugs } }) : [],
         ]);
 
         const academyMap = new Map(academies.map(a => [a._id.toString(), mapAcademy(a)]));
         const coachMap = new Map(coaches.map(c => [c._id.toString(), mapCoach(c)]));
+        const sportMap = new Map(sports.map(s => [s.slug, s.toJSON()]));
 
         const populated = items.map(item => {
-            const data = item.itemType === 'academy'
-                ? academyMap.get(item.itemId)
-                : coachMap.get(item.itemId);
-            return { ...item.toJSON(), data: data || null };
+            let data = null;
+            if (item.itemType === 'academy') {
+                data = academyMap.get(item.itemId) || null;
+            } else if (item.itemType === 'coach') {
+                data = coachMap.get(item.itemId) || null;
+            } else if (item.itemType === 'sport') {
+                data = sportMap.get(item.itemId) || null;
+            }
+            return { ...item.toJSON(), data };
         });
 
         res.json(ok(populated));
@@ -56,8 +65,8 @@ router.get('/me/populated', protect, async (req, res) => {
 router.get('/check/:itemType/:slug', protect, async (req, res) => {
     try {
         const { itemType, slug } = req.params;
-        if (!['academy', 'coach'].includes(itemType)) {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'itemType must be academy or coach'));
+        if (!['academy', 'coach', 'sport'].includes(itemType)) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'itemType must be academy, coach, or sport'));
         }
         const exists = await shortlistRepo.existsForUser(req.user.id, itemType, slug);
         res.json(ok({ inShortlist: exists }));
@@ -75,8 +84,8 @@ router.post('/', protect, async (req, res) => {
             return res.status(400).json(fail('VALIDATION_ERROR', 'itemType and itemId are required'));
         }
 
-        if (!['academy', 'coach'].includes(itemType)) {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'itemType must be academy or coach'));
+        if (!['academy', 'coach', 'sport'].includes(itemType)) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'itemType must be academy, coach, or sport'));
         }
 
         const existing = await shortlistRepo.findDuplicate(req.user.id, itemType, itemId);
@@ -105,8 +114,8 @@ router.delete('/clear-all', protect, async (req, res) => {
 router.delete('/by-slug/:itemType/:slug', protect, async (req, res) => {
     try {
         const { itemType, slug } = req.params;
-        if (!['academy', 'coach'].includes(itemType)) {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'itemType must be academy or coach'));
+        if (!['academy', 'coach', 'sport'].includes(itemType)) {
+            return res.status(400).json(fail('VALIDATION_ERROR', 'itemType must be academy, coach, or sport'));
         }
         const item = await shortlistRepo.removeByUserAndItem(req.user.id, itemType, slug);
         if (!item) return res.status(404).json(fail('NOT_FOUND', 'Shortlist item not found'));

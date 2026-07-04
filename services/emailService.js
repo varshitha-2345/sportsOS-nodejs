@@ -1,5 +1,5 @@
 const { Resend } = require('resend');
-const { welcomeTemplate, passwordResetTemplate, otpTemplate, plainTextWelcome, plainTextPasswordReset, plainTextOtp } = require('../templates/emailTemplates');
+const { welcomeTemplate, passwordResetTemplate, plainTextWelcome, plainTextPasswordReset } = require('../templates/emailTemplates');
 const logger = require('../utils/logger');
 
 let resendClient = null;
@@ -86,25 +86,7 @@ async function sendPasswordResetEmail(user, resetToken) {
     return sendEmail(user.email, subject, html, text);
 }
 
-async function sendOtpEmail(user, otp, type) {
-    const purpose = type === 'password_reset' ? 'password_reset'
-        : type === 'phone_verification' ? 'phone_verification'
-        : 'email_verification';
-
-    const subjectMap = {
-        email_verification: 'Verify Your SportsOS Email',
-        password_reset: 'Your SportsOS Password Reset Code',
-        phone_verification: 'Verify Your Phone Number',
-    };
-
-    const subject = subjectMap[type] || 'Your SportsOS Verification Code';
-    const html = otpTemplate(user.name, otp, purpose);
-    const text = plainTextOtp(user.name, otp, purpose);
-    return sendEmail(user.email, subject, html, text);
-}
-
 module.exports = {
     sendWelcomeEmail,
     sendPasswordResetEmail,
-    sendOtpEmail,
 };

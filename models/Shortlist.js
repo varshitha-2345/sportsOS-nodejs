@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const shortlistSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    itemType: { type: String, enum: ['academy', 'coach'], required: true },
+    itemType: { type: String, enum: ['academy', 'coach', 'sport'], required: true },
     itemId: { type: String, required: true },
 }, { timestamps: true });
 

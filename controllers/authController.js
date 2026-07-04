@@ -5,9 +5,8 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const User = require('../models/User');
-const OTP = require('../models/OTP');
 const RefreshToken = require('../models/RefreshToken');
-const { sendWelcomeEmail, sendPasswordResetEmail, sendOtpEmail } = require('../services/emailService');
+const { sendWelcomeEmail, sendPasswordResetEmail } = require('../services/emailService');
 const { logEvent } = require('../services/auditService');
 const { ok, fail } = require('../utils/response');
 const { protect } = require('../middleware/authMiddleware');
@@ -68,33 +67,6 @@ const refreshLimiter = rateLimit({
     legacyHeaders: false,
 });
 
-// OTP limiter
-const otpLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 10,
-    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many verification attempts. Please try again later.' } },
-    standardHeaders: true,
-    legacyHeaders: false,
-});
-
-// Resend OTP limiter
-const resendOtpLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 5,
-    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many resend requests. Please try again later.' } },
-    standardHeaders: true,
-    legacyHeaders: false,
-});
-
-// Verify Login OTP limiter (stricter — separate from general OTP limiter)
-const verifyLoginOtpLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 5,
-    message: { ok: false, error: { code: 'RATE_LIMITED', message: 'Too many verification attempts. Please try again later.' } },
-    standardHeaders: true,
-    legacyHeaders: false,
-});
-
 // ─── Token Helpers ───────────────────────────────────────────
 
 function parseDuration(str) {
@@ -116,12 +88,6 @@ function generateAccessToken(user) {
 
 function generateRefreshTokenValue() {
     return crypto.randomBytes(40).toString('hex');
-}
-
-// ─── OTP Helpers ─────────────────────────────────────────────
-
-function generateOtp() {
-    return crypto.randomInt(100000, 999999).toString();
 }
 
 function getRefreshExpiry() {
@@ -250,24 +216,26 @@ router.post('/register', registerLimiter, async (req, res) => {
             password: hashedPassword,
             phone: phone || undefined,
             role: 'athlete',
-            isVerified: false,
+            isVerified: true,
             authProvider: 'credentials',
             lastLoginAt: new Date(),
         });
 
-        // Generate OTP for email verification
-        const otp = generateOtp();
-        await OTP.create({ userId: user._id, otp, type: 'email_verification' });
+        const token = generateAccessToken(user);
+        const refreshTokenValue = generateRefreshTokenValue();
+        await storeRefreshToken(refreshTokenValue, user._id, req);
+        setRefreshTokenCookie(res, refreshTokenValue);
 
-        // Send OTP email (non-blocking)
-        sendOtpEmail({ name: user.name, email: user.email }, otp, 'email_verification').catch((err) => {
-            logger.error('email.otp_failed', { userId: user._id, message: err.message });
+        // Send welcome email (non-blocking)
+        sendWelcomeEmail(user).catch((err) => {
+            logger.error('email.welcome_failed', { userId: user._id, message: err.message });
         });
 
         logEvent({ userId: user._id, action: 'user.registered', metadata: { email: user.email }, req });
 
-        res.status(201).json(ok({ requiresVerification: true, email: user.email }));
+        res.status(201).json(ok({ token, user: safeUser(user) }));
     } catch (err) {
+        logger.error('register.error', { message: err.message, stack: err.stack, name: err.name });
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
@@ -292,20 +260,6 @@ router.post('/login', loginLimiter, async (req, res) => {
             return res.status(401).json(fail('INVALID_CREDENTIALS', 'Invalid email or password'));
         }
 
-        // Check if email is verified
-        if (!user.isVerified) {
-            // Resend OTP automatically
-            const otp = generateOtp();
-            await OTP.findOneAndDelete({ userId: user._id, type: 'email_verification' });
-            await OTP.create({ userId: user._id, otp, type: 'email_verification' });
-
-            sendOtpEmail({ name: user.name, email: user.email }, otp, 'email_verification').catch((err) => {
-                logger.error('email.otp_failed', { userId: user._id, message: err.message });
-            });
-
-            return res.status(403).json(fail('EMAIL_NOT_VERIFIED', 'Please verify your email. A new code has been sent.'));
-        }
-
         const token = generateAccessToken(user);
         const refreshTokenValue = generateRefreshTokenValue();
         await storeRefreshToken(refreshTokenValue, user._id, req);
@@ -318,6 +272,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 
         res.json(ok({ token, user: safeUser(user) }));
     } catch (err) {
+        logger.error('login.error', { message: err.message, stack: err.stack, name: err.name });
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
@@ -392,107 +347,6 @@ router.post('/logout', protect, async (req, res) => {
     }
 });
 
-// ─── POST /auth/verify-otp ──────────────────────────────────
-
-router.post('/verify-otp', otpLimiter, async (req, res) => {
-    try {
-        const { email, otp } = req.body;
-
-        if (!email || !otp) {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'email and otp are required'));
-        }
-
-        const normalizedEmail = email.toLowerCase();
-        const user = await User.findOne({ email: normalizedEmail });
-        if (!user) {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'Invalid email or OTP'));
-        }
-
-        if (user.isVerified) {
-            return res.status(400).json(fail('ALREADY_VERIFIED', 'Email is already verified'));
-        }
-
-        // Find and validate OTP
-        const otpRecord = await OTP.findOne({
-            userId: user._id,
-            otp,
-            type: 'email_verification',
-        });
-
-        if (!otpRecord) {
-            return res.status(400).json(fail('INVALID_OTP', 'Invalid or expired OTP'));
-        }
-
-        // Check expiry
-        if (otpRecord.expiresAt < new Date()) {
-            await OTP.findByIdAndDelete(otpRecord._id);
-            return res.status(400).json(fail('OTP_EXPIRED', 'OTP has expired. Please request a new one.'));
-        }
-
-        // Delete OTP
-        await OTP.findByIdAndDelete(otpRecord._id);
-
-        // Mark user as verified
-        user.isVerified = true;
-        await user.save();
-
-        // Generate tokens
-        const token = generateAccessToken(user);
-        const refreshTokenValue = generateRefreshTokenValue();
-        await storeRefreshToken(refreshTokenValue, user._id, req);
-        setRefreshTokenCookie(res, refreshTokenValue);
-
-        // Send welcome email (non-blocking)
-        sendWelcomeEmail(user).catch((err) => {
-            logger.error('email.welcome_failed', { userId: user._id, message: err.message });
-        });
-
-        logEvent({ userId: user._id, action: 'user.email_verified', metadata: { email: user.email }, req });
-
-        res.json(ok({ token, user: safeUser(user) }));
-    } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
-    }
-});
-
-// ─── POST /auth/resend-otp ──────────────────────────────────
-
-router.post('/resend-otp', resendOtpLimiter, async (req, res) => {
-    try {
-        const { email } = req.body;
-
-        if (!email || typeof email !== 'string') {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'Email is required'));
-        }
-
-        const normalizedEmail = email.toLowerCase();
-        const user = await User.findOne({ email: normalizedEmail });
-
-        // Always return success to prevent email enumeration
-        if (!user || user.isVerified) {
-            return res.json(ok({ message: 'If an account exists, a new code has been sent.' }));
-        }
-
-        // Delete previous OTP
-        await OTP.findOneAndDelete({ userId: user._id, type: 'email_verification' });
-
-        // Generate new OTP
-        const otp = generateOtp();
-        await OTP.create({ userId: user._id, otp, type: 'email_verification' });
-
-        // Send OTP email (non-blocking)
-        sendOtpEmail({ name: user.name, email: user.email }, otp, 'email_verification').catch((err) => {
-            logger.error('email.otp_failed', { userId: user._id, message: err.message });
-        });
-
-        logEvent({ userId: user._id, action: 'user.otp_resent', metadata: { email: user.email }, req });
-
-        return res.json(ok({ message: 'If an account exists, a new code has been sent.' }));
-    } catch (err) {
-        return res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
-    }
-});
-
 // ─── GET /auth/session ───────────────────────────────────────
 
 router.get('/session', protect, async (req, res) => {
@@ -525,12 +379,12 @@ router.get('/me', protect, async (req, res) => {
 
 const VALID_SKILL_LEVELS = ['beginner', 'intermediate', 'advanced', 'competitive'];
 const VALID_GENDERS = ['male', 'female', 'other', 'prefer_not_to_say'];
-const VALID_ONBOARDING_ROLES = ['athlete', 'parent', 'coach', 'academy_owner'];
+const VALID_ONBOARDING_ROLES = ['athlete', 'parent'];
 
 function validateOnboarding(body) {
     const errors = [];
     if (body.role !== undefined && !VALID_ONBOARDING_ROLES.includes(body.role)) {
-        errors.push('role must be athlete, parent, coach, or academy_owner');
+        errors.push('role must be athlete or parent');
     }
     if (body.age !== undefined) {
         const a = Number(body.age);
@@ -569,7 +423,7 @@ function validateOnboarding(body) {
 
 router.put('/onboarding', protect, authLimiter, async (req, res) => {
     try {
-        const { role, age, gender, sportInterests, skillLevel, goals, location, children } = req.body;
+        const { role, age, gender, sportInterests, skillLevel, goals, location, children, budget, trainingFrequency, competitionLevel } = req.body;
 
         const errors = validateOnboarding(req.body);
         if (errors.length > 0) {
@@ -584,6 +438,9 @@ router.put('/onboarding', protect, authLimiter, async (req, res) => {
         if (skillLevel !== undefined) update.skillLevel = skillLevel;
         if (goals !== undefined) update.goals = goals;
         if (location !== undefined) update.location = location;
+        if (budget !== undefined) update.budget = budget;
+        if (trainingFrequency !== undefined) update.trainingFrequency = trainingFrequency;
+        if (competitionLevel !== undefined) update.competitionLevel = competitionLevel;
         if (children !== undefined) {
             update.children = children.map(c => ({
                 name: c.name,
@@ -702,8 +559,6 @@ router.patch('/profile', protect, authLimiter, async (req, res) => {
 });
 
 // ─── Password Validation ──────────────────────────────────────
-
-const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
 
 function validatePassword(password) {
     if (typeof password !== 'string') return 'Password is required';
@@ -882,7 +737,7 @@ router.post('/google', googleAuthLimiter, async (req, res) => {
             user: safeUser(user),
         }));
     } catch (err) {
-        logger.error('auth.google.error', { message: err.message });
+        logger.error('auth.google.error', { message: err.message, stack: err.stack });
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
@@ -1028,184 +883,6 @@ router.post('/microsoft', microsoftAuthLimiter, async (req, res) => {
     } catch (err) {
         logger.error('auth.microsoft.error', { message: err.message });
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
-    }
-});
-
-// ─── POST /auth/login-otp ────────────────────────────────────
-// Sends OTP to email for passwordless login.
-
-router.post('/login-otp', otpLimiter, async (req, res) => {
-    try {
-        const { email } = req.body;
-        if (!email || typeof email !== 'string') {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'Email is required'));
-        }
-
-        const normalizedEmail = email.toLowerCase().trim();
-
-        // Always return success to prevent email enumeration
-        const user = await User.findOne({ email: normalizedEmail });
-        if (!user) {
-            return res.json(ok({ message: 'If an account exists, a login code has been sent.' }));
-        }
-
-        // Delete previous login OTPs
-        await OTP.findOneAndDelete({ userId: user._id, type: 'login' });
-
-        const otp = generateOtp();
-        await OTP.create({ userId: user._id, otp, type: 'login' });
-
-        sendOtpEmail({ name: user.name, email: user.email }, otp, 'login').catch((err) => {
-            logger.error('email.login_otp_failed', { userId: user._id, message: err.message });
-        });
-
-        logEvent({ userId: user._id, action: 'user.login_otp_sent', metadata: { email: normalizedEmail }, req });
-
-        return res.json(ok({ message: 'If an account exists, a login code has been sent.' }));
-    } catch (err) {
-        return res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
-    }
-});
-
-// ─── POST /auth/verify-login-otp ─────────────────────────────
-// Verifies OTP for passwordless login.
-
-router.post('/verify-login-otp', verifyLoginOtpLimiter, async (req, res) => {
-    try {
-        const { email, otp } = req.body;
-        if (!email || !otp) {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'email and otp are required'));
-        }
-
-        const normalizedEmail = email.toLowerCase().trim();
-        const user = await User.findOne({ email: normalizedEmail });
-        if (!user) {
-            return res.status(400).json(fail('INVALID_OTP', 'Invalid or expired code'));
-        }
-
-        const otpRecord = await OTP.findOne({
-            userId: user._id,
-            otp,
-            type: 'login',
-        });
-
-        if (!otpRecord) {
-            return res.status(400).json(fail('INVALID_OTP', 'Invalid or expired code'));
-        }
-
-        if (otpRecord.expiresAt < new Date()) {
-            await OTP.findByIdAndDelete(otpRecord._id);
-            return res.status(400).json(fail('OTP_EXPIRED', 'Code has expired. Please request a new one.'));
-        }
-
-        await OTP.findByIdAndDelete(otpRecord._id);
-
-        user.isVerified = true;
-        user.lastLoginAt = new Date();
-        await user.save();
-
-        const token = generateAccessToken(user);
-        const refreshTokenValue = generateRefreshTokenValue();
-        await storeRefreshToken(refreshTokenValue, user._id, req);
-        setRefreshTokenCookie(res, refreshTokenValue);
-
-        logEvent({ userId: user._id, action: 'user.login_otp_verified', metadata: { email: user.email }, req });
-
-        res.json(ok({ token, user: safeUser(user) }));
-    } catch (err) {
-        res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
-    }
-});
-
-// ─── POST /auth/forgot-password-otp ─────────────────────────
-// Sends OTP for password reset via email.
-
-router.post('/forgot-password-otp', forgotPasswordLimiter, async (req, res) => {
-    try {
-        const { email } = req.body;
-        if (!email || typeof email !== 'string') {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'Email is required'));
-        }
-
-        const normalizedEmail = email.toLowerCase().trim();
-        const user = await User.findOne({ email: normalizedEmail });
-
-        // Always return success to prevent email enumeration
-        if (!user) {
-            return res.json(ok({ message: 'If an account exists, a reset code has been sent.' }));
-        }
-
-        // Check auth provider
-        if (user.authProvider === 'google' || user.authProvider === 'microsoft') {
-            return res.status(400).json(fail(
-                'OAUTH_ACCOUNT',
-                `This account uses ${user.authProvider === 'google' ? 'Google' : 'Microsoft'} Sign In. No password reset required.`
-            ));
-        }
-
-        // Delete previous reset OTPs
-        await OTP.findOneAndDelete({ userId: user._id, type: 'password_reset' });
-
-        const otp = generateOtp();
-        await OTP.create({ userId: user._id, otp, type: 'password_reset' });
-
-        sendOtpEmail({ name: user.name, email: user.email }, otp, 'password_reset').catch((err) => {
-            logger.error('email.reset_otp_failed', { userId: user._id, message: err.message });
-        });
-
-        logEvent({ userId: user._id, action: 'user.password_reset_otp_sent', metadata: { email: normalizedEmail }, req });
-
-        return res.json(ok({ message: 'If an account exists, a reset code has been sent.' }));
-    } catch (err) {
-        return res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
-    }
-});
-
-// ─── POST /auth/verify-reset-otp ────────────────────────────
-// Verifies OTP for password reset and returns a reset token.
-
-router.post('/verify-reset-otp', resetPasswordLimiter, async (req, res) => {
-    try {
-        const { email, otp } = req.body;
-        if (!email || !otp) {
-            return res.status(400).json(fail('VALIDATION_ERROR', 'email and otp are required'));
-        }
-
-        const normalizedEmail = email.toLowerCase().trim();
-        const user = await User.findOne({ email: normalizedEmail });
-        if (!user) {
-            return res.status(400).json(fail('INVALID_OTP', 'Invalid or expired code'));
-        }
-
-        const otpRecord = await OTP.findOne({
-            userId: user._id,
-            otp,
-            type: 'password_reset',
-        });
-
-        if (!otpRecord) {
-            return res.status(400).json(fail('INVALID_OTP', 'Invalid or expired code'));
-        }
-
-        if (otpRecord.expiresAt < new Date()) {
-            await OTP.findByIdAndDelete(otpRecord._id);
-            return res.status(400).json(fail('OTP_EXPIRED', 'Code has expired. Please request a new one.'));
-        }
-
-        await OTP.findByIdAndDelete(otpRecord._id);
-
-        // Generate a short-lived reset token
-        const resetToken = crypto.randomBytes(32).toString('hex');
-        const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-        user.resetPasswordToken = hashedToken;
-        user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
-        await user.save();
-
-        logEvent({ userId: user._id, action: 'user.reset_otp_verified', metadata: { email: user.email }, req });
-
-        return res.json(ok({ resetToken }));
-    } catch (err) {
-        return res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
 });
 
@@ -1394,21 +1071,11 @@ router.put('/change-email', protect, authLimiter, async (req, res) => {
         }
 
         user.email = normalizedEmail;
-        user.isVerified = false;
         await user.save();
-
-        // Generate OTP for new email verification
-        const otp = generateOtp();
-        await OTP.findOneAndDelete({ userId: user._id, type: 'email_verification' });
-        await OTP.create({ userId: user._id, otp, type: 'email_verification' });
-
-        sendOtpEmail({ name: user.name, email: normalizedEmail }, otp, 'email_verification').catch((err) => {
-            logger.error('email.otp_failed', { userId: user._id, message: err.message });
-        });
 
         logEvent({ userId: user._id, action: 'user.email_changed', metadata: { newEmail: normalizedEmail }, req });
 
-        res.json(ok({ message: 'Email updated. Please verify your new email.', requiresVerification: true }));
+        res.json(ok({ message: 'Email updated successfully.' }));
     } catch (err) {
         res.status(500).json(fail('SERVER_ERROR', 'Internal server error'));
     }
@@ -1475,9 +1142,6 @@ router.delete('/account', protect, authLimiter, async (req, res) => {
 
         // Delete user
         await User.findByIdAndDelete(user._id);
-
-        // Clean up related data
-        await OTP.deleteMany({ userId: user._id });
 
         clearRefreshTokenCookie(res);
 

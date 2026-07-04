@@ -104,7 +104,7 @@ app.use(helmet({
   crossOriginResourcePolicy: false,
 }));
 app.use(cookieParser());
-app.use(requestTimeout(30000));
+app.use(requestTimeout(60000));
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '100kb' }));
 

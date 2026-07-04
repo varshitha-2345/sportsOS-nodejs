@@ -27,6 +27,9 @@ const userSchema = new mongoose.Schema({
     skillLevel:     { type: String, enum: ['beginner', 'intermediate', 'advanced', 'competitive'] },
     goals:          { type: String, maxlength: 500 },
     location:       { type: String },
+    budget:         { type: String, enum: ['free', 'budget', 'moderate', 'premium', 'elite'] },
+    trainingFrequency: { type: String, enum: ['occasional', 'weekly', 'regular', 'daily'] },
+    competitionLevel:  { type: String, enum: ['recreational', 'local', 'state', 'national', 'international'] },
     children:       [childSchema],
     // Preferences and consent
     preferences: {
