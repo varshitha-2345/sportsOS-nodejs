@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 const reviewRepo = require('../repositories/reviewRepository');
+const reviewService = require('../services/reviewService');
 const Academy = require('../models/Academy');
 const Coach = require('../models/Coach');
 const { ok, fail } = require('../utils/response');
