@@ -21,8 +21,6 @@
 // ============================================================
 
 const Academy         = require('../models/Academy');
-const AcademyImage    = require('../models/AcademyImage');
-const AcademyFacility = require('../models/AcademyFacility');
 const slugService     = require('./slugService');
 
 // ─── CREATE ACADEMY ──────────────────────────────────────────
@@ -71,9 +69,7 @@ const deleteAcademy = async (academyId) => {
 // ─── GET ACADEMY BY ID ────────────────────────────────────────
 // Fetches full academy details including images and facilities.
 const getAcademyById = async (academyId) => {
-  const academy = await Academy.findById(academyId)
-    .populate('images')
-    .populate('facilities');
+  const academy = await Academy.findById(academyId);
   if (!academy) throw new Error('Academy not found');
   return academy;
 };
@@ -82,9 +78,7 @@ const getAcademyById = async (academyId) => {
 // Used for SEO-friendly URLs like /academies/sportz-village
 // Matches app/(public)/academies/[slug]/page.tsx
 const getAcademyBySlug = async (slug) => {
-  const academy = await Academy.findOne({ slug })
-    .populate('images')
-    .populate('facilities');
+  const academy = await Academy.findOne({ slug });
   if (!academy) throw new Error('Academy not found');
   return academy;
 };
@@ -94,23 +88,18 @@ const getAcademyBySlug = async (slug) => {
 // Only shows published + verified academies publicly.
 // Supports: keyword, city, sport, trainingLevel, facilities filters.
 const searchAcademies = async ({
-  query, city, sport, trainingLevel, facility,
-  page = 1, limit = 10,
-  onlyVerified = true, // public search only shows verified
+  query, city, sport, page = 1, limit = 10,
 }) => {
   const filter = {};
 
-  if (onlyVerified) {
-    filter.isVerified          = true;
-    filter.verificationStatus  = 'verified';
-    filter.status              = 'published';
+  if (city)  filter.city = new RegExp(city, 'i');
+  if (sport) filter.sport = new RegExp(`^${sport}$`, 'i'); // real field is "sport" (single string)
+  if (query) {
+    filter.$or = [
+      { name: new RegExp(query, 'i') },
+      { description: new RegExp(query, 'i') },
+    ];
   }
-
-  if (query)         filter.$text          = { $search: query };
-  if (city)          filter.city           = new RegExp(city, 'i');
-  if (sport)         filter.sportsOffered  = sport;  // updated field name
-  if (trainingLevel) filter.trainingLevels = trainingLevel;
-  if (facility)      filter.facilities     = facility;
 
   const skip = (page - 1) * limit;
   const [academies, total] = await Promise.all([
@@ -126,10 +115,7 @@ const searchAcademies = async ({
 // Matches components/home/featured-academies.tsx
 const getFeaturedAcademies = async (limit = 10) => {
   return Academy.find({
-    isFeatured:         true,
-    isVerified:         true,
-    verificationStatus: 'verified',
-    status:             'published',
+    verified: true, // real field is "verified" (boolean), not "isVerified"/"verificationStatus"
   }).limit(limit);
 };
 
@@ -140,10 +126,11 @@ const calculateAcademyRank = async (academyId) => {
   const academy = await Academy.findById(academyId);
   if (!academy) throw new Error('Academy not found');
 
-  const score =
-    (academy.avgRating     || 0) * 20 +
-    (academy.reviewCount   || 0) * 2  +
-    (academy.shortlistCount || 0);
+  const avgRating   = academy.rating?.average || 0; // real field: rating.average
+  const reviewCount = academy.rating?.count   || 0; // real field: rating.count
+  const savedCount  = academy.savedCount      || 0; // real field: savedCount
+
+  const score = (avgRating * 20) + (reviewCount * 2) + savedCount;
 
   await Academy.findByIdAndUpdate(academyId, { rankScore: score });
   return { rankScore: score };
