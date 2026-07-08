@@ -1,3 +1,4 @@
+const authService = require('../services/authService');
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
