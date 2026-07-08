@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const academyRepo = require('../repositories/academyRepository');
+const academyService = require('../services/academyService');
 const { unmapAcademyInput } = require('../utils/academyMapper');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 const { ok, fail } = require('../utils/response');
