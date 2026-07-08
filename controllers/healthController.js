@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
+const academyService = require('../services/academyService');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 
 const startTime = Date.now();
