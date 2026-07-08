@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const coachService = require('../services/coachService');
 const coachRepo = require('../repositories/coachRepository');
 const { protect, adminOnly } = require('../middleware/authMiddleware');
 const { ok, fail } = require('../utils/response');
